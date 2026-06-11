@@ -1865,7 +1865,26 @@ function buildWuRows(wu,pool){return wu.map((w,i)=>`<div class="wu-row" data-wu-
 function collectWu(con){return Array.from(con.querySelectorAll(".wu-row")).map(r=>({parentPn:r.querySelector(".wu-parent").value,qty:parseInt(r.querySelector(".wu-qty").value)||1})).filter(w=>w.parentPn);}
 function bindWu(con,pool,onUpdate){
   con.querySelectorAll(".wu-del").forEach(btn=>{btn.addEventListener("click",()=>{const wu=collectWu(con);wu.splice(parseInt(btn.closest("[data-wu-idx]").dataset.wuIdx),1);con.innerHTML=buildWuRows(wu,pool);bindWu(con,pool,onUpdate);if(onUpdate)onUpdate();});});
-  con.querySelectorAll(".wu-parent").forEach(sel=>{sel.addEventListener("change",()=>{if(onUpdate)onUpdate();});});
+  con.querySelectorAll(".wu-parent").forEach((sel,idx)=>{sel.addEventListener("change",()=>{
+    // First parent row: autofill assignee from parent part if assignee is empty
+    if(idx===0){
+      const parentPn=sel.value;
+      const parent=parentPn?S.parts.find(x=>x.pn===parentPn):null;
+      if(parent?.assignee){
+        const assigneeEl=document.getElementById("ef-assignee");
+        // Only autofill if assignee is currently empty
+        if(assigneeEl&&!cSelVal("ef-assignee")){
+          // Update the cSel dropdown to the parent's assignee
+          const opts=MEMBER_OPTS(parent.assignee);
+          const newHtml=cSelHTML("ef-assignee",opts,parent.assignee,"_noop",{placeholder:"— Unassigned —"});
+          const wrapper=assigneeEl.closest(".csel-wrap")||assigneeEl.parentElement;
+          if(wrapper){wrapper.outerHTML=newHtml;}
+          bindCSel();
+        }
+      }
+    }
+    if(onUpdate)onUpdate();
+  });});
   con.querySelector(".wu-add")?.addEventListener("click",()=>{const wu=collectWu(con);wu.push({parentPn:"",qty:1});con.innerHTML=buildWuRows(wu,pool);bindWu(con,pool,onUpdate);});
 }
 // ══════════════════════════════════════════════════
