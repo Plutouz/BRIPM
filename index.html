@@ -358,16 +358,7 @@ async function ensureList(cfg){
     await gf(`/sites/${spSiteId}/lists/${spListId}/columns`,{method:"POST",body:JSON.stringify({name:"PartData",text:{allowMultipleLines:true,maxLength:100000}})});
   }
 }
-async function fetchAllParts(){
-  let parts=[],url=`/sites/${spSiteId}/lists/${spListId}/items?$expand=fields($select=Title,PartData,id)&$top=500`;
-  while(url){
-    const r=await gf(url);if(!r.ok)throw new Error("Fetch failed");
-    const d=await r.json();
-    for(const it of d.value){try{parts.push({_spId:it.id,...JSON.parse(it.fields.PartData)});}catch(e){}}
-    url=d['@odata.nextLink']?d['@odata.nextLink'].replace("https://graph.microsoft.com/v1.0",""):null;
-  }
-  return parts;
-}
+async function fetchAllParts(){ return []; } // disabled — using Firebase
 async function upsertPart(part){
   const{_spId,...pd}=part;
   const body=JSON.stringify({fields:{Title:part.pn,PartData:JSON.stringify(pd)}});
@@ -2406,7 +2397,7 @@ function doImport(e){const file=e.target.files[0];if(!file)return;const reader=n
 async function connectSP(){const cfg=S.config;if(!cfg.clientId){openSetup();return;}S.error=null;render();try{await initMsal(cfg);const tok=await getToken(cfg);S.user={name:tok.account?.name||tok.account?.username||"User"};await ensureList(cfg);await syncSP();S.connected=true;S.syncStatus="live";startPolling();startPoll();}catch(err){S.error="Connection failed: "+err.message;S.syncStatus="error";}render();}
 async function syncSP(){S.syncStatus="syncing";try{const remote=await fetchAllParts();if(remote.length>0)S.parts=remote;else if(S.parts.length>0)for(const p of S.parts){const s=await upsertPart(p);Object.assign(p,{_spId:s._spId});}saveLocal(S.parts,S.mfgOrders);S.syncStatus="live";}catch(err){S.error="Sync: "+err.message;S.syncStatus="error";}render();}
 let pollTimer=null;
-function startPoll(){if(pollTimer)clearInterval(pollTimer);pollTimer=setInterval(async()=>{if(!S.connected)return;try{const r=await fetchAllParts();if(r.length>0){S.parts=r;saveLocal(S.parts,S.mfgOrders);render();}}catch(e){}},15000);}
+function startPoll(){} // disabled — using Firebase
 
 // ══════════════════════════════════════════════════
 //  DROPDOWN CALLBACKS (registered globally)
