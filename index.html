@@ -398,9 +398,10 @@ function suggestPN(parts,nha,excId){
   used=pool.map(x=>parsePN(x.pn)).filter(x=>x&&x.mm===np.mm&&x.ss===np.ss&&x.pp!=="00").map(x=>+x.pp);let n=1;while(used.includes(n))n++;return`${CAR}${np.mm}${np.ss}${String(n).padStart(2,"0")}`;
 }
 const pnLevel=nha=>{const np=parsePN(nha);if(!np)return"";if(np.mm==="00")return"MM";if(np.ss==="00")return"SS";return"PP";};
-function nextSerial(parts,pn,rev){
-  const base=fullPN(pn,rev),existing=(parts.find(x=>x.pn===pn)?.serials||[]).map(s=>s.sn);
-  let n=1;while(existing.includes(base+String(n).padStart(2,"0")))n++;return base+String(n).padStart(2,"0");
+function nextSerial(parts,pn,rev,extraSns){
+  const base=fullPN(pn,rev);
+  const existing=[...(parts.find(x=>x.pn===pn)?.serials||[]).map(s=>s.sn),...(extraSns||[])];
+  let n=1;while(existing.includes(base+"K"+String(n).padStart(2,"0")))n++;return base+"K"+String(n).padStart(2,"0");
 }
 
 // Serial helpers — "deployed" = in-assembly.
@@ -436,6 +437,7 @@ function getDeployedSerialsForParentSn(part,parentSn,allParts){
 function getUnassignedSerials(part){return(part.serials||[]).filter(s=>s.locationKind==="storage"||s.locationKind==="disposed"||!s.locationKind);}
 function qtyDeployed(part,allParts){return(part.serials||[]).filter(s=>snDeployed(s,allParts)).length;}
 function qtyOnHand(part,allParts){
+  const inStorage=(part.serials||[]).filter(s=>s.locationKind==="storage").length;
   const deployed=part.serialized?qtyDeployed(part,allParts||[]):0;
   return{onHand:inStorage+deployed,inStorage,deployed};
 }
@@ -462,10 +464,11 @@ function rollup(id,parts,vis=new Set()){
 }
 function buildTreeNodes(parts,parentPn){
   const active=parts.filter(p=>(p.whereUsed||[]).some(w=>w.parentPn===parentPn));
-  const brActive=active.filter(p=>!p.isOem&&p.status!=="Obsolete").sort((a,b)=>a.pn.localeCompare(b.pn));
+  const brActive=active.filter(p=>!p.isOem&&!isConsumable(p.pn)&&p.status!=="Obsolete").sort((a,b)=>a.pn.localeCompare(b.pn));
   const brObs=active.filter(p=>!p.isOem&&p.status==="Obsolete").sort((a,b)=>a.pn.localeCompare(b.pn));
   const oemActive=active.filter(p=>p.isOem&&p.status!=="Obsolete (OEM)").sort((a,b)=>a.pn.localeCompare(b.pn));
-  return[...brActive,...brObs,...oemActive].map(p=>({...p,_qty:qtyInParent(p,parentPn),children:buildTreeNodes(parts,p.pn)}));
+  const brCons=active.filter(p=>!p.isOem&&isConsumable(p.pn)&&p.status!=="Obsolete").sort((a,b)=>a.pn.localeCompare(b.pn));
+  return[...brActive,...brObs,...oemActive,...brCons].map(p=>({...p,_qty:qtyInParent(p,parentPn),children:buildTreeNodes(parts,p.pn)}));
 }
 const getRoots=parts=>parts.filter(p=>!p.whereUsed||p.whereUsed.length===0);
 // Get today's date in Central Time (UTC-5/UTC-6)
@@ -502,6 +505,7 @@ function isAssemblyOrder(o){
   return S.parts.some(x=>(x.whereUsed||[]).some(w=>w.parentPn===p.pn));
 }
 function isMasterPN(pn){return typeof pn==="string"&&pn.length===8&&pn.slice(2)==="000000";}
+const isConsumable=pn=>{const d=(pn||"").replace(/[^0-9]/g,"");return d.length>=6&&d[4]==="9"&&d[5]==="9";};
 function isLowCodePart(p){return isLowCode(getProjCode(p.pn));}
 function fmtProjCode(code,name){return name?`${code} - ${name}`:code;}
 
@@ -608,7 +612,7 @@ const S={
   search:"",user:null,syncStatus:"offline",connected:false,error:null,
   sortCol:"pn",sortDir:1,config:loadCfg(),listFocus:-1,assigneeSuggestions:[],
   listFilter:{},mfgFilter:{},invFilter:{},oemFilter:{},dmFilter:{},dmSubFilter:"",invTab:"br",dmSort:"pn",dmSortDir:1,mfgSort:"mfgNum",mfgSortDir:1,listSort:"pn",listSortDir:1,oemSort:"pn",oemSortDir:1,activeProfile:"",majorAssy:"",
-  teamMembers:[],compDate:"",deadlines:[],projectCodes:[],listProjectFilter:"",activeTreeRoot:"",activeTreeCode:"",
+  teamMembers:[],compDate:"",deadlines:[],projectCodes:[],listProjectFilter:"",activeTreeRoot:"",activeTreeCode:"",isolatedTreeRoot:"",
 };
 function memberOptions(selectedVal){
   const members=S.teamMembers.length?S.teamMembers:S.assigneeSuggestions;
@@ -816,7 +820,7 @@ function buildTreeView(){
   function node(n,depth){
     const r=rollup(n.id,S.parts),hasK=n.children&&n.children.length>0;
     const isExp=depth===0?true:S.expanded[n.id]===true,obs=n.status==="Obsolete"||n.status==="Obsolete (OEM)";
-    const orp=isOrphan(n,S.parts),sc=sColor(n.status),qty=n._qty||1;
+    const orp=isOrphan(n,S.parts),sc=isConsumable(n.pn)&&!n.isOem?"#eab308":sColor(n.status),qty=n._qty||1;
     const showAssignee=NEEDS_ASSIGNEE.includes(n.status)&&n.assignee;
     const ind=depth*18;
     const tqty=(n.whereUsed||[]).reduce((s,w)=>s+w.qty,0)||1;
@@ -835,8 +839,8 @@ function buildTreeView(){
       <div class="${rowCls}" data-id="${n.id}" style="display:grid;grid-template-columns:minmax(240px,1fr) 44px 130px 110px;align-items:center;padding:3px 4px;border-radius:6px;gap:0">
         <div style="display:flex;align-items:center;gap:5px;min-width:0;padding-left:${ind}px">
           <span class="${depth===0?"":"tree-toggle"}" style="flex-shrink:0;${depth===0?"cursor:default;":""}">${depth===0?(hasK?"":""):(hasK?(isExp?"▾":"▸"):" ")}</span>
-          <span style="font-family:var(--mono);font-size:11px;color:${n.isOem?"var(--blue-text)":"var(--text)"};flex-shrink:0;white-space:nowrap">${fullPN(n.pn,n.rev)}</span>
-          <span style="color:${orp?"var(--red3)":n.isOem?"var(--text)":sc};font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${n.name}">${n.name}</span>
+          <span style="font-family:var(--mono);font-size:11px;color:${n.isOem?"var(--blue-text)":isConsumable(n.pn)?"#eab308":"var(--text)"};flex-shrink:0;white-space:nowrap">${fullPN(n.pn,n.rev)}</span>
+          <span style="color:${orp?"var(--red3)":n.isOem?"var(--text)":sColor(n.status)};font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${n.name}">${n.name}</span>
           ${n.serialized?`<span class="serial-dot-btn" data-id="${n.id}" style="color:var(--purple);font-size:10px;cursor:pointer;flex-shrink:0">●</span>`:""}
           ${showAssignee?`<span class="assignee-chip" style="flex-shrink:0">${n.assignee}</span>`:""}
         </div>
@@ -863,7 +867,7 @@ function buildTreeView(){
   const rootCodes=[...new Set(allRoots.map(p=>getProjCode(p.pn)))].filter(c=>!isLowCode(c)).sort((a,b)=>parseInt(a)-parseInt(b));
   if(!S.activeTreeCode||!rootCodes.includes(S.activeTreeCode))S.activeTreeCode=rootCodes[0]||"";
   const codeRoots=allRoots.filter(p=>getProjCode(p.pn)===S.activeTreeCode);
-  const activeRoot=codeRoots.find(p=>p.pn===S.activeTreeRoot)||codeRoots[0]||null;
+  const activeRoot=S.isolatedTreeRoot?S.parts.find(p=>p.pn===S.isolatedTreeRoot)||(codeRoots.find(p=>p.pn===S.activeTreeRoot)||codeRoots[0]||null):(codeRoots.find(p=>p.pn===S.activeTreeRoot)||codeRoots[0]||null);
   if(activeRoot)S.activeTreeRoot=activeRoot.pn;
   const rootParts2=activeRoot?[activeRoot]:codeRoots;
 
@@ -876,6 +880,7 @@ function buildTreeView(){
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
         <div style="font-size:11px;color:var(--text3)">Dbl-click or right-click to edit · <span style="color:var(--purple)">●</span> serialized</div>
         <div style="display:flex;gap:6px">
+          ${S.isolatedTreeRoot?`<button class="btn sm primary" id="tree-unisolate" style="font-size:11px;padding:3px 8px">✕ Unisolate</button>`:""}
           <button class="btn sm" id="tree-expand-all" style="font-size:11px;padding:3px 8px">Expand All</button>
           <button class="btn sm" id="tree-collapse-all" style="font-size:11px;padding:3px 8px">Collapse All</button>
         </div>
@@ -935,6 +940,38 @@ function buildDetailPanel(sel){
       ${sel.drawingUrl?`<div class="df" style="grid-column:1/-1"><div class="df-l">Drawing</div><div class="df-v"><a href="${sel.drawingUrl}" target="_blank" style="color:var(--blue-text);font-size:12px">${I.link} ${sel.drawingUrl}</a></div></div>`:""}
     </div>
     ${sel.desc?`<div style="font-size:12px;color:var(--text2);padding:8px 0;border-top:1px solid var(--border)">${sel.desc}</div>`:""}
+    ${(()=>{
+      const deps=(sel.dependencies||[]).map(pn=>S.parts.find(x=>x.pn===pn)).filter(Boolean);
+      const dependents=S.parts.filter(p=>(p.dependencies||[]).includes(sel.pn));
+      if(!deps.length&&!dependents.length&&!sel.isOem)return`<div style="border-top:1px solid var(--border);margin-top:8px;padding-top:8px">
+        <div class="children-list">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:7px">
+            <span class="cl-hdr" style="margin:0">Dependencies (0)</span>
+            <button class="btn sm" id="detail-add-dep">${I.plus} Add Dependency</button>
+          </div>
+        </div>
+      </div>`;
+      const depItem=p=>`<div class="cl-item" data-id="${p.id}">
+        <span class="cl-pn ${p.isOem?"oem":""}">${fullPN(p.pn,p.rev)}</span>
+        <span class="cl-name" style="color:${sColor(p.status)}">${p.name}</span>
+        <span class="cl-arrow">${I.arrow}</span>
+      </div>`;
+      return`<div style="border-top:1px solid var(--border);margin-top:8px;padding-top:8px">
+        ${!sel.isOem?`<div class="children-list" style="margin-bottom:8px">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:7px">
+            <span class="cl-hdr" style="margin:0">Dependencies (${deps.length})</span>
+            <button class="btn sm" id="detail-add-dep">${I.plus} Add Dependency</button>
+          </div>
+          ${deps.map(depItem).join("")}
+        </div>`:""}
+        ${dependents.length?`<div class="children-list">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:7px">
+            <span class="cl-hdr" style="margin:0">Dependents (${dependents.length})</span>
+          </div>
+          ${dependents.map(depItem).join("")}
+        </div>`:""}
+      </div>`;
+    })()}
     ${comps.length||!comps.length?`<div class="children-list">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:7px">
         <span class="cl-hdr" style="margin:0">Components (${comps.length})</span>
@@ -1135,7 +1172,7 @@ function buildMfgView(){
     ${mfgTh("status","Status","14%")}${mfgTh("assignee","Assignee","12%")}
     ${mfgTh("dueDate","Due Date","8%")}
     ${mfgTh("qty","Qty","4%")}${mfgTh("revision","Rev","4%")}${mfgTh("material","Material","9%")}
-    ${mfgTh("stockNos","Stock / BOM","10%")}<th style="width:5%"></th>
+    ${mfgTh("stockNos","Stock / BOM","10%")}<th style="width:96px;min-width:96px;position:sticky;right:0;background:var(--bg2);z-index:3"></th>
   </tr></thead>`;
 
   function mfgRow(o){
@@ -1162,7 +1199,7 @@ function buildMfgView(){
         ?`<span class="mfg-bom-click" data-mfg-id="${o.id}" style="cursor:pointer;font-size:11px;font-weight:700;color:var(--blue-text);padding:3px 5px;border:1px solid var(--blue-text);border-radius:4px">BOM</span>`
         :`<span class="mfg-field-click" data-mfg-id="${o.id}" data-mfg-field="stockNos" style="cursor:pointer;font-family:var(--mono);font-size:11px;color:var(--purple-text);padding:3px 5px;border:1px solid transparent;border-radius:4px">${o.stockNos||"—"}</span>`
       }</td>
-      <td><div style="display:flex;gap:2px">
+      <td style="position:sticky;right:0;background:var(--bg2);box-shadow:-3px 0 8px rgba(0,0,0,.4);z-index:2;padding:4px 6px;min-width:96px;width:96px"><div style="display:flex;gap:2px">
         <button class="btn icon btn-edit-mfg" data-mfg-id="${o.id}">${I.edit}</button>
         <button class="btn icon btn-mfg-credits" data-mfg-id="${o.id}" title="View credits" style="font-size:11px">🏅</button>
         <button class="btn icon danger btn-del-mfg" data-mfg-id="${o.id}">${I.trash}</button>
@@ -1200,11 +1237,11 @@ function buildMfgView(){
       // Completed section uses "Mfg Date" instead of "Due Date" in the header
       const theadComplete=thead.replace(">Due Date<",">Mfg Date<");
       let html="";
-      if(overdueOrders.length)html+=`<div style="margin-bottom:18px"><div style="font-size:11px;font-weight:700;color:var(--red3);text-transform:uppercase;letter-spacing:.1em;margin-bottom:8px;padding-bottom:6px;border-bottom:1px solid var(--red3)">⚠ Overdue (${overdueOrders.length})</div><div class="tbl-wrap"><table style="width:100%;border-collapse:collapse;table-layout:fixed">${thead}<tbody>${overdueOrders.map(mfgRow).join("")}</tbody></table></div></div>`;
+      if(overdueOrders.length)html+=`<div style="margin-bottom:18px"><div style="font-size:11px;font-weight:700;color:var(--red3);text-transform:uppercase;letter-spacing:.1em;margin-bottom:8px;padding-bottom:6px;border-bottom:1px solid var(--red3)">⚠ Overdue (${overdueOrders.length})</div><div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;min-width:900px">${thead}<tbody>${overdueOrders.map(mfgRow).join("")}</tbody></table></div></div>`;
       sectionDefs.forEach(({key,color,label})=>{
         const sec=[...allOrders.filter(o=>o.status===key)].sort(mfgSortFn);
         const th=key==="Complete"?theadComplete:thead;
-        if(sec.length)html+=`<div style="margin-top:12px"><div style="font-size:11px;font-weight:700;color:${color};text-transform:uppercase;letter-spacing:.1em;margin-bottom:8px;padding-bottom:6px;border-bottom:1px solid var(--border)">${label} (${sec.length})</div><div class="tbl-wrap"><table style="width:100%;border-collapse:collapse;table-layout:fixed">${th}<tbody>${sec.map(mfgRow).join("")}</tbody></table></div></div>`;
+        if(sec.length)html+=`<div style="margin-top:12px"><div style="font-size:11px;font-weight:700;color:${color};text-transform:uppercase;letter-spacing:.1em;margin-bottom:8px;padding-bottom:6px;border-bottom:1px solid var(--border)">${label} (${sec.length})</div><div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;min-width:900px">${th}<tbody>${sec.map(mfgRow).join("")}</tbody></table></div></div>`;
       });
       if(!allOrders.length)html=`<div style="text-align:center;padding:30px;color:var(--text3)">No manufacturing orders yet.</div>`;
       return html;
@@ -1568,6 +1605,7 @@ function bindPage(){
     row.addEventListener("contextmenu",e=>{e.preventDefault();openCtxTree(e,id);});
   });
   document.getElementById("toggle-unplaced")?.addEventListener("click",()=>{S.expanded.__unplaced=!S.expanded.__unplaced;saveExpanded();render();});
+  document.getElementById("tree-unisolate")?.addEventListener("click",()=>{S.isolatedTreeRoot="";render();});
   document.getElementById("tree-expand-all")?.addEventListener("click",()=>{
     S.parts.filter(p=>!p.isOem).forEach(p=>{S.expanded[p.id]=true;});
     S.expanded.__unplaced=true;saveExpanded();render();
@@ -1579,6 +1617,10 @@ function bindPage(){
   document.getElementById("detail-del")?.addEventListener("click",()=>promptDelete(S.selected?.id));
   document.getElementById("detail-serials")?.addEventListener("click",e=>openSerialModal(e.currentTarget.dataset.id||S.selected?.id));
   document.getElementById("detail-add-comp")?.addEventListener("click",()=>openAddComponentDialog(S.selected?.pn));
+  document.getElementById("detail-add-dep")?.addEventListener("click",()=>{
+    if(!S.selected)return;
+    openAddDepDialog(S.selected.id);
+  });
   document.getElementById("detail-cost-chart")?.addEventListener("click",()=>{if(S.selected&&hasKids(S.selected.pn,S.parts))openPieChart(S.selected.id,"cost");});
   document.getElementById("detail-mass-chart")?.addEventListener("click",()=>{if(S.selected&&hasKids(S.selected.pn,S.parts))openPieChart(S.selected.id,"mass");});
   document.querySelectorAll(".cl-item").forEach(el=>{el.addEventListener("click",e=>{if(e.type!=="contextmenu"){S.selected=S.parts.find(x=>x.id===el.dataset.id);render();}});});
@@ -1618,6 +1660,7 @@ function openCtxTree(e,id){
   const inParent=parentPn&&(p.whereUsed||[]).some(w=>w.parentPn===parentPn);
   openCtxMenu(e,[
     {label:"Edit Part",icon:I.edit,fn:()=>p.isOem?openEditOem(id):openEdit(id)},
+    ...(S.isolatedTreeRoot===p.pn?[{label:"Unisolate",icon:I.x,fn:()=>{S.isolatedTreeRoot="";render();}}]:[{label:"Isolate",icon:"◎",fn:()=>{S.isolatedTreeRoot=p.pn;S.expanded[p.id]=true;saveExpanded();render();}}]),
     ...(!p.isOem?[
       {divider:true},
       {label:"Add Existing BR Part",icon:I.plus,fn:()=>openAddComponentDialog(p.pn,"br")},
@@ -1896,27 +1939,85 @@ function openSnQuickAssign(partId,currentSn,event){
 // ══════════════════════════════════════════════════
 //  WHERE-USED HELPERS
 // ══════════════════════════════════════════════════
-function buildWuRows(wu,pool){return wu.map((w,i)=>`<div class="wu-row" data-wu-idx="${i}"><select class="wu-parent" style="-webkit-appearance:none;appearance:none"><option value="">— None —</option>${pool.map(a=>`<option value="${a.pn}" ${w.parentPn===a.pn?"selected":""}>${fullPN(a.pn,a.rev)} ${a.name}</option>`).join("")}</select><input class="wu-qty" type="number" min="1" value="${w.qty||1}" autocomplete="off"><button class="btn icon danger wu-del" type="button">${I.trash}</button></div>`).join("")+`<button class="btn sm wu-add" type="button" style="margin-top:4px">${I.plus} Add</button>`;}
-function collectWu(con){return Array.from(con.querySelectorAll(".wu-row")).map(r=>({parentPn:r.querySelector(".wu-parent").value,qty:parseInt(r.querySelector(".wu-qty").value)||1})).filter(w=>w.parentPn);}
+function buildWuRows(wu,pool){
+  return wu.map((w,i)=>{
+    const sel=pool.find(p=>p.pn===w.parentPn);
+    const label=sel?`${fullPN(sel.pn,sel.rev)} — ${sel.name}`:(w.parentPn||"");
+    return`<div class="wu-row" data-wu-idx="${i}" style="display:grid;grid-template-columns:1fr 80px 32px;gap:6px;align-items:center;margin-bottom:6px">
+      <div style="position:relative">
+        <input class="wu-parent-input" type="text" value="${label}" data-pn="${w.parentPn||""}" autocomplete="off" placeholder="Search parent part…"
+          style="width:100%;padding:7px 10px;border:1px solid var(--border2);border-radius:var(--r);background:var(--bg3);color:var(--text);font-family:var(--sans);font-size:12px;box-sizing:border-box">
+        <div class="wu-dropdown" style="display:none;position:absolute;z-index:9999;top:100%;left:0;right:0;background:var(--bg3);border:1px solid var(--border2);border-radius:var(--r);max-height:180px;overflow-y:auto;box-shadow:0 4px 16px rgba(0,0,0,.4)"></div>
+      </div>
+      <input class="wu-qty" type="number" min="1" value="${w.qty||1}" autocomplete="off" style="padding:7px 10px;border:1px solid var(--border2);border-radius:var(--r);background:var(--bg3);color:var(--text);font-family:var(--mono);font-size:12px;width:100%;box-sizing:border-box">
+      <button class="btn icon danger wu-del" type="button">${I.trash}</button>
+    </div>`;
+  }).join("")+`<button class="btn sm wu-add" type="button" style="margin-top:4px">${I.plus} Add</button>`;
+}
+function collectWu(con){return Array.from(con.querySelectorAll(".wu-row")).map(r=>({parentPn:(r.querySelector(".wu-parent-input")?.dataset?.pn||"").trim(),qty:parseInt(r.querySelector(".wu-qty")?.value)||1})).filter(w=>w.parentPn);}
+
+function buildDepRows(deps,pool){
+  return (deps||[]).map((pn,i)=>{
+    const sel=pool.find(p=>p.pn===pn);
+    const label=sel?`${fullPN(sel.pn,sel.rev)} — ${sel.name}`:(pn||"");
+    return`<div class="dep-row" data-dep-idx="${i}" style="display:grid;grid-template-columns:1fr 32px;gap:6px;align-items:center;margin-bottom:6px">
+      <div style="position:relative">
+        <input class="dep-pn-input" type="text" value="${label}" data-pn="${pn||""}" autocomplete="off" placeholder="Search part…"
+          style="width:100%;padding:7px 10px;border:1px solid var(--border2);border-radius:var(--r);background:var(--bg3);color:var(--text);font-family:var(--sans);font-size:12px;box-sizing:border-box">
+        <div class="dep-dropdown" style="display:none;position:absolute;z-index:9999;top:100%;left:0;right:0;background:var(--bg3);border:1px solid var(--border2);border-radius:var(--r);max-height:180px;overflow-y:auto;box-shadow:0 4px 16px rgba(0,0,0,.4)"></div>
+      </div>
+      <button class="btn icon danger dep-del" data-idx="${i}" type="button">${I.trash}</button>
+    </div>`;
+  }).join("")+`<button class="btn sm dep-add" type="button" style="margin-top:4px">${I.plus} Add Dependency</button>`;
+}
+function collectDeps(con){return Array.from((con||document).querySelectorAll(".dep-row")).map(r=>(r.querySelector(".dep-pn-input")?.dataset?.pn||"").trim()).filter(Boolean);}
+function bindDep(con,pool){
+  con.querySelectorAll(".dep-del").forEach(btn=>{btn.addEventListener("click",()=>{const d=collectDeps(con);d.splice(parseInt(btn.dataset.idx),1);con.innerHTML=buildDepRows(d,pool);bindDep(con,pool);});});
+  con.querySelector(".dep-add")?.addEventListener("click",()=>{const d=collectDeps(con);d.push("");con.innerHTML=buildDepRows(d,pool);bindDep(con,pool);setTimeout(()=>{const ins=con.querySelectorAll(".dep-pn-input");if(ins.length)ins[ins.length-1].focus();},50);});
+  con.querySelectorAll(".dep-pn-input").forEach(inp=>{
+    const dd=inp.nextElementSibling;
+    function show(q){const lq=(q||"").toLowerCase();const m=!q?pool.slice(0,40):pool.filter(p=>(p.pn||"").toLowerCase().includes(lq)||(p.name||"").toLowerCase().includes(lq)).slice(0,40);if(!m.length){dd.style.display="none";return;}dd.innerHTML=m.map(p=>`<div class="dep-opt" data-pn="${p.pn}" style="padding:7px 10px;cursor:pointer;font-size:13px;border-bottom:1px solid var(--border)"><span style="font-family:var(--mono);color:var(--text)">${fullPN(p.pn,p.rev)}</span><span style="color:var(--text2);margin-left:8px">${p.name}</span></div>`).join("");dd.style.display="block";dd.querySelectorAll(".dep-opt").forEach(o=>{o.addEventListener("mousedown",e=>{e.preventDefault();const p=pool.find(x=>x.pn===o.dataset.pn);inp.value=p?`${fullPN(p.pn,p.rev)} — ${p.name}`:o.dataset.pn;inp.dataset.pn=o.dataset.pn;dd.style.display="none";});});}
+    inp.addEventListener("input",()=>show(inp.value));inp.addEventListener("focus",()=>show(inp.value));inp.addEventListener("blur",()=>setTimeout(()=>{dd.style.display="none";},150));
+  });
+}
 function bindWu(con,pool,onUpdate){
   con.querySelectorAll(".wu-del").forEach(btn=>{btn.addEventListener("click",()=>{const wu=collectWu(con);wu.splice(parseInt(btn.closest("[data-wu-idx]").dataset.wuIdx),1);con.innerHTML=buildWuRows(wu,pool);bindWu(con,pool,onUpdate);if(onUpdate)onUpdate();});});
-  con.querySelectorAll(".wu-parent").forEach((sel,idx)=>{sel.addEventListener("change",()=>{
-    // First parent row: autofill assignee from parent part if assignee is empty
-    if(idx===0){
-      const parentPn=sel.value;
-      const parent=parentPn?S.parts.find(x=>x.pn===parentPn):null;
-      if(parent?.assignee&&!cSelVal("ef-assignee")){
-        const trigger=document.getElementById("ef-assignee");
-        if(trigger){
-          trigger.dataset.cselVal=parent.assignee;
-          const lbl=trigger.querySelector(".csel-label");
-          if(lbl){lbl.textContent=parent.assignee;lbl.style.color="";}
-          if(_csOpts["ef-assignee"])_csOpts["ef-assignee"].currentVal=parent.assignee;
-        }
-      }
+  // Where Used text search inputs
+  con.querySelectorAll(".wu-parent-input").forEach((inp,idx)=>{
+    const dropdown=inp.nextElementSibling;
+    function showWuOptions(q){
+      const lq=(q||"").toLowerCase();
+      const matches=!q?pool.slice(0,40):pool.filter(p=>(p.pn||"").toLowerCase().includes(lq)||(p.name||"").toLowerCase().includes(lq)).slice(0,40);
+      if(!matches.length){dropdown.style.display="none";return;}
+      dropdown.innerHTML=matches.map(p=>`<div class="wu-opt" data-pn="${p.pn}" style="padding:7px 10px;cursor:pointer;font-size:13px;border-bottom:1px solid var(--border)"><span style="font-family:var(--mono);color:var(--text)">${fullPN(p.pn,p.rev)}</span><span style="color:var(--text2);margin-left:8px">${p.name}</span></div>`).join("");
+      dropdown.style.display="block";
+      dropdown.querySelectorAll(".wu-opt").forEach(opt=>{
+        opt.addEventListener("mousedown",e=>{
+          e.preventDefault();
+          inp.value=`${fullPN(opt.dataset.pn,pool.find(x=>x.pn===opt.dataset.pn)?.rev||"-")} — ${pool.find(x=>x.pn===opt.dataset.pn)?.name||""}`;
+          inp.dataset.pn=opt.dataset.pn;
+          dropdown.style.display="none";
+          // Autofill assignee from first parent
+          if(idx===0){
+            const parent=S.parts.find(x=>x.pn===opt.dataset.pn);
+            if(parent?.assignee&&!cSelVal("ef-assignee")){
+              const trigger=document.getElementById("ef-assignee");
+              if(trigger){
+                trigger.dataset.cselVal=parent.assignee;
+                const lbl=trigger.querySelector(".csel-label");
+                if(lbl){lbl.textContent=parent.assignee;lbl.style.color="";}
+                if(_csOpts["ef-assignee"])_csOpts["ef-assignee"].currentVal=parent.assignee;
+              }
+            }
+          }
+          if(onUpdate)onUpdate();
+        });
+      });
     }
-    if(onUpdate)onUpdate();
-  });});
+    inp.addEventListener("input",()=>showWuOptions(inp.value));
+    inp.addEventListener("focus",()=>showWuOptions(inp.value));
+    inp.addEventListener("blur",()=>setTimeout(()=>{dropdown.style.display="none";},150));
+  });
   con.querySelector(".wu-add")?.addEventListener("click",()=>{const wu=collectWu(con);wu.push({parentPn:"",qty:1});con.innerHTML=buildWuRows(wu,pool);bindWu(con,pool,onUpdate);});
 }
 // ══════════════════════════════════════════════════
@@ -1928,6 +2029,7 @@ function openEdit(id,preParentPn){
   const isNew=!existing,kids=!isNew&&hasKids(p.pn,S.parts);
   const r=kids?rollup(p.id,S.parts):{cost:0,mass:0};
   const pool=S.parts.filter(x=>!x.isOem&&x.id!==p.id);
+  const allPool=S.parts.filter(x=>x.id!==p.id);
   const firstNha=(p.whereUsed||[])[0]?.parentPn||"";
   const sug=firstNha&&isNew?suggestPN(S.parts,firstNha,p.id):"",lvl=pnLevel(firstNha);
 
@@ -1950,6 +2052,7 @@ function openEdit(id,preParentPn){
     </div>
     <div class="f"><label>Name</label><input id="ef-name" type="text" autocomplete="off" value="${p.name||""}" placeholder="e.g. Gearbox Upper Casing"></div>
     <div class="f"><label>Where Used</label><div id="wu-con">${buildWuRows((p.whereUsed&&p.whereUsed.length>0)?p.whereUsed:[{parentPn:"",qty:1}],pool)}</div></div>
+    <div class="f"><label>Dependencies <span style="font-weight:400;font-size:10px;color:var(--text3)">(parts this part depends on)</span></label><div id="ef-dep-con">${buildDepRows(p.dependencies||[],allPool)}</div></div>
     <div class="f-row">
       <div class="f"><label>Material Cost ($)${kids?" — auto":""}</label><input id="ef-cost" type="number" value="${kids?r.cost.toFixed(2):p.matCost||0}" ${kids?'class="f-dis" disabled':""} autocomplete="off"></div>
       <div class="f"><label>Mass (lb)${kids?" — auto":""}</label><input id="ef-mass" type="number" value="${kids?r.mass.toFixed(3):parseFloat(p.mass)||0}" ${kids?'class="f-dis" disabled':""} autocomplete="off"></div>
@@ -1986,6 +2089,8 @@ function openEdit(id,preParentPn){
   const wuCon=d.querySelector("#wu-con");
   const updateSug=()=>{const wu=collectWu(wuCon),fn=wu[0]?.parentPn||"";const s2=fn&&isNew?suggestPN(S.parts,fn,p.id):"",l2=pnLevel(fn);const sb=d.querySelector("#sug-box"),sp=d.querySelector("#sug-pn"),sh=d.querySelector("#sug-hint");if(sb)sb.style.display=s2&&isNew?"flex":"none";if(sp&&s2)sp.textContent=s2;if(sh){sh.textContent=l2?`Level ${l2} under ${fn}`:"";sh.style.display=l2?"block":"none";}};
   bindWu(wuCon,pool,updateSug);
+  const depCon=d.querySelector("#ef-dep-con");
+  if(depCon)bindDep(depCon,allPool);
   // Auto-fill assignee from parent if new part with pre-set parent
   if(!existing&&preParentPn){
     const parent=S.parts.find(x=>x.pn===preParentPn);
@@ -2021,7 +2126,7 @@ Update the part number or add this project code in Settings.`);
         return false;
       }
     }
-    const part={...p,pn:rawPn,rev:cSelVal("ef-rev")||"-",name:nv,status:cSelVal("ef-status")||"In Design",assignee:cSelVal("ef-assignee")||"",whereUsed:collectWu(wuCon),matCost:kids?r.cost:(parseFloat(d.querySelector("#ef-cost")?.value)||0),mass:kids?r.mass:(parseFloat(d.querySelector("#ef-mass")?.value)||0),material:kids?"Assembly":(d.querySelector("#ef-mat")?.value||""),location:d.querySelector("#ef-loc")?.value||"",drawingUrl:d.querySelector("#ef-draw")?.value||"",desc:d.querySelector("#ef-desc")?.value||"",serialized:cSelVal("ef-serial")==="1",designDueDate:d.querySelector("#ef-duedate")?.value||"",designedBy:cSelVal("ef-designedby")||p.designedBy||"",reviewedBy:cSelVal("ef-reviewedby")||p.reviewedBy||"",manufacturedBy:cSelVal("ef-mfgby")||p.manufacturedBy||"",inspectedBy:cSelVal("ef-inspby")||p.inspectedBy||"",isOem:false,id:p.id||("p"+Date.now())};
+    const part={...p,pn:rawPn,rev:cSelVal("ef-rev")||"-",name:nv,status:cSelVal("ef-status")||"In Design",assignee:cSelVal("ef-assignee")||"",whereUsed:collectWu(wuCon),dependencies:collectDeps(d.querySelector("#ef-dep-con")),matCost:kids?r.cost:(parseFloat(d.querySelector("#ef-cost")?.value)||0),mass:kids?r.mass:(parseFloat(d.querySelector("#ef-mass")?.value)||0),material:kids?"Assembly":(d.querySelector("#ef-mat")?.value||""),location:d.querySelector("#ef-loc")?.value||"",drawingUrl:d.querySelector("#ef-draw")?.value||"",desc:d.querySelector("#ef-desc")?.value||"",serialized:cSelVal("ef-serial")==="1",designDueDate:d.querySelector("#ef-duedate")?.value||"",designedBy:cSelVal("ef-designedby")||p.designedBy||"",reviewedBy:cSelVal("ef-reviewedby")||p.reviewedBy||"",manufacturedBy:cSelVal("ef-mfgby")||p.manufacturedBy||"",inspectedBy:cSelVal("ef-inspby")||p.inspectedBy||"",isOem:false,id:p.id||("p"+Date.now())};
     if(part.assignee&&!S.assigneeSuggestions.includes(part.assignee))S.assigneeSuggestions.push(part.assignee);
     persistPart(part);closeDlg("br");return true;
   };
@@ -2149,7 +2254,8 @@ function openSerialModal(id){
   d.querySelector("#sr-add-row").addEventListener("click",()=>{
     const p2=getPart();if(!p2)return;
     const cur=collectSerials(tbody);
-    cur.push({sn:nextSerial(S.parts,p2.pn,p2.rev),locationKind:"storage",condition:"New",dateMfg:"",manufacturedBy:"",inspectedBy:"",notes:""});
+    const curSns=cur.map(s=>s.sn);
+    cur.push({sn:nextSerial(S.parts,p2.pn,p2.rev,curSns),locationKind:"storage",condition:"New",dateMfg:"",manufacturedBy:"",inspectedBy:"",notes:""});
     tbody.innerHTML=buildTable(cur);bindTbl(tbody);
   });
   d.querySelector("#sr-save").addEventListener("click",()=>{
@@ -2352,10 +2458,10 @@ function openMfgCompleteSerialPrompt(order,part){
     const tempSerials=[...(part.serials||[]),...suggestions];
     const tempPart={...part,serials:tempSerials};
     const base=fullPN(part.pn,part.rev);
-    const usedSns=tempSerials.map(s=>s.sn);
+    const usedSns=[...tempSerials.map(s=>s.sn),...suggestions.map(s=>s.sn)];
     let n=1;
-    while(usedSns.includes(base+String(n).padStart(2,"0")))n++;
-    const newSn=base+String(n).padStart(2,"0");
+    while(usedSns.includes(base+"K"+String(n).padStart(2,"0")))n++;
+    const newSn=base+"K"+String(n).padStart(2,"0");
     suggestions.push({sn:newSn,locationKind:"storage",dateMfg:new Date().toISOString().slice(0,10),condition:"New",notes:""});
   }
 
@@ -2465,9 +2571,18 @@ function openSetup(){
 // ══════════════════════════════════════════════════
 function persistPart(part){
   const _sy=window.scrollY;
+  part.updatedAt=Date.now();
   const i=S.parts.findIndex(x=>x.id===part.id);if(i>=0)S.parts[i]=part;else S.parts.push(part);
   if(S.selected?.id===part.id)S.selected=part;saveLocal(S.parts,S.mfgOrders);
   if(S.connected&&getFbCfg())fbUpsertPart(part);
+  // Auto-expand parent when part gains its first child
+  (part.whereUsed||[]).forEach(wu=>{
+    const parent=S.parts.find(x=>x.pn===wu.parentPn);
+    if(parent){
+      const childCount=S.parts.filter(p=>(p.whereUsed||[]).some(w=>w.parentPn===parent.pn)).length;
+      if(childCount===1&&!S.expanded[parent.id]){S.expanded[parent.id]=true;saveExpanded();}
+    }
+  });
   render();window.scrollTo(0,_sy);
 }
 function doExport(){const blob=new Blob([JSON.stringify({version:11,exportedAt:new Date().toISOString(),parts:S.parts,mfgOrders:S.mfgOrders},null,2)],{type:"application/json"});const url=URL.createObjectURL(blob),a=document.createElement("a");a.href=url;a.download=`BR26_IPM_${new Date().toISOString().slice(0,10)}.json`;a.click();URL.revokeObjectURL(url);}
@@ -3121,6 +3236,7 @@ function buildDmView(){
       const secondLevel=S.parts.filter(p=>
         !p.isOem&&
         p.status!=="Obsolete"&&
+        (p.pn||"").slice(-4)==="0000"&&
         (p.whereUsed||[]).some(w=>topLevelParts.some(t=>t.pn===w.parentPn))
       ).sort((a,b)=>a.pn.localeCompare(b.pn));
 
@@ -3301,6 +3417,29 @@ function openMfgCreditsDialog(orderId){
   <div class="df"><button id="cred-close" class="btn">Close</button></div>`);
   d.querySelector("#cred-x").addEventListener("click",()=>closeDlg("mfg-credits"));
   d.querySelector("#cred-close").addEventListener("click",()=>closeDlg("mfg-credits"));
+}
+
+function openAddDepDialog(partId){
+  const part=S.parts.find(x=>x.id===partId);if(!part)return;
+  const pool=S.parts.filter(x=>x.id!==partId&&!(part.dependencies||[]).includes(x.pn));
+  const rows=buildDepRows([],pool);
+  const d=openDlg("add-dep","min(520px,96vw)",`
+  <div class="dh"><div class="dh-title">${I.plus} Add Dependency to ${part.name}</div><button id="adx" class="btn icon" style="margin-left:auto">${I.x}</button></div>
+  <div class="db">
+    <div style="font-size:13px;color:var(--text2);margin-bottom:12px">Select a part this part depends on.</div>
+    <div id="add-dep-con">${rows}</div>
+  </div>
+  <div class="df"><button id="ad-cancel" class="btn">Cancel</button><button id="ad-ok" class="btn primary">Add</button></div>`);
+  d.querySelector("#adx").addEventListener("click",()=>closeDlg("add-dep"));
+  d.querySelector("#ad-cancel").addEventListener("click",()=>closeDlg("add-dep"));
+  const depCon=d.querySelector("#add-dep-con");
+  bindDep(depCon,pool);
+  d.querySelector("#ad-ok").addEventListener("click",()=>{
+    const newDeps=collectDeps(depCon).filter(pn=>!(part.dependencies||[]).includes(pn));
+    if(!newDeps.length){closeDlg("add-dep");return;}
+    part.dependencies=[...(part.dependencies||[]),...newDeps];
+    persistPart(part);closeDlg("add-dep");render();
+  });
 }
 
 function openMfgBomDialog(orderId){
