@@ -688,7 +688,7 @@ function buildSidebar(){
   const topCost=topLevel.reduce((s,p)=>s+rollup(p.id,S.parts).cost,0);
   const topMass=topLevel.reduce((s,p)=>s+rollup(p.id,S.parts).mass,0);
   return`<div class="sidebar">
-    <div class="sidebar-logo"><img src="${LOGO_URI}" alt="Bama Racing"><div class="sidebar-car">Inventory &amp; Part Manager<span style="font-size:10px;opacity:.5;margin-left:6px">v70</span></div></div>
+    <div class="sidebar-logo"><img src="${LOGO_URI}" alt="Bama Racing"><div class="sidebar-car">Inventory &amp; Part Manager<span style="font-size:10px;opacity:.5;margin-left:6px">v1</span></div></div>
     <div class="nav-section">Views</div>
     <button class="nav-btn ${S.view==="dm"?"active":""}" id="nav-dm">${I.dm} Design Manager</button>
     <button class="nav-btn ${S.view==="tree"?"active":""}" id="nav-tree">${I.tree} Assembly Tree</button>
@@ -1590,7 +1590,14 @@ function openCtxTree(e,id){
   const inParent=parentPn&&(p.whereUsed||[]).some(w=>w.parentPn===parentPn);
   openCtxMenu(e,[
     {label:"Edit Part",icon:I.edit,fn:()=>p.isOem?openEditOem(id):openEdit(id)},
-    ...(!p.isOem?[{label:"Add Existing BR Part",icon:I.plus,fn:()=>openAddComponentDialog(p.pn,"br")},{label:"Add Existing OEM Part",icon:I.oem,fn:()=>openAddComponentDialog(p.pn,"oem")}]:[]),
+    ...(!p.isOem?[
+      {divider:true},
+      {label:"Add Existing BR Part",icon:I.plus,fn:()=>openAddComponentDialog(p.pn,"br")},
+      {label:"Add Existing OEM Part",icon:I.oem,fn:()=>openAddComponentDialog(p.pn,"oem")},
+      {divider:true},
+      {label:"Create New BR Part",icon:I.plus,fn:()=>openEdit(null,p.pn)},
+      {label:"Create New OEM Part",icon:I.oem,fn:()=>openEditOem(null,p.pn)},
+    ]:[]),
     ...(p.serialized?[{label:"Manage Serials",icon:I.serial,fn:()=>openSerialModal(id)}]:[]),
     ...(inParent?[{divider:true},{label:"Remove from Assembly",icon:I.remove,amber:true,fn:()=>removeFromAssembly(id,parentPn)}]:[]),
   ]);
@@ -1870,16 +1877,13 @@ function bindWu(con,pool,onUpdate){
     if(idx===0){
       const parentPn=sel.value;
       const parent=parentPn?S.parts.find(x=>x.pn===parentPn):null;
-      if(parent?.assignee){
-        const assigneeEl=document.getElementById("ef-assignee");
-        // Only autofill if assignee is currently empty
-        if(assigneeEl&&!cSelVal("ef-assignee")){
-          // Update the cSel dropdown to the parent's assignee
-          const opts=MEMBER_OPTS(parent.assignee);
-          const newHtml=cSelHTML("ef-assignee",opts,parent.assignee,"_noop",{placeholder:"— Unassigned —"});
-          const wrapper=assigneeEl.closest(".csel-wrap")||assigneeEl.parentElement;
-          if(wrapper){wrapper.outerHTML=newHtml;}
-          bindCSel();
+      if(parent?.assignee&&!cSelVal("ef-assignee")){
+        const trigger=document.getElementById("ef-assignee");
+        if(trigger){
+          trigger.dataset.cselVal=parent.assignee;
+          const lbl=trigger.querySelector(".csel-label");
+          if(lbl){lbl.textContent=parent.assignee;lbl.style.color="";}
+          if(_csOpts["ef-assignee"])_csOpts["ef-assignee"].currentVal=parent.assignee;
         }
       }
     }
@@ -1954,6 +1958,19 @@ function openEdit(id,preParentPn){
   const wuCon=d.querySelector("#wu-con");
   const updateSug=()=>{const wu=collectWu(wuCon),fn=wu[0]?.parentPn||"";const s2=fn&&isNew?suggestPN(S.parts,fn,p.id):"",l2=pnLevel(fn);const sb=d.querySelector("#sug-box"),sp=d.querySelector("#sug-pn"),sh=d.querySelector("#sug-hint");if(sb)sb.style.display=s2&&isNew?"flex":"none";if(sp&&s2)sp.textContent=s2;if(sh){sh.textContent=l2?`Level ${l2} under ${fn}`:"";sh.style.display=l2?"block":"none";}};
   bindWu(wuCon,pool,updateSug);
+  // Auto-fill assignee from parent if new part with pre-set parent
+  if(!existing&&preParentPn){
+    const parent=S.parts.find(x=>x.pn===preParentPn);
+    if(parent?.assignee&&!cSelVal("ef-assignee")){
+      const trigger=document.getElementById("ef-assignee");
+      if(trigger){
+        trigger.dataset.cselVal=parent.assignee;
+        const lbl=trigger.querySelector(".csel-label");
+        if(lbl){lbl.textContent=parent.assignee;lbl.style.color="";}
+        if(_csOpts["ef-assignee"])_csOpts["ef-assignee"].currentVal=parent.assignee;
+      }
+    }
+  }
   d.querySelector("#ef-use-sug")?.addEventListener("click",()=>{const sp=d.querySelector("#sug-pn");if(sp&&pnInput)pnInput.value=sp.textContent;});
 
   const snap=()=>JSON.stringify({pn:d.querySelector("#ef-pn")?.value,rev:cSelVal("ef-rev"),name:d.querySelector("#ef-name")?.value,status:cSelVal("ef-status"),assignee:cSelVal("ef-assignee"),cost:d.querySelector("#ef-cost")?.value,mass:d.querySelector("#ef-mass")?.value,mat:d.querySelector("#ef-mat")?.value,loc:d.querySelector("#ef-loc")?.value,draw:d.querySelector("#ef-draw")?.value,desc:d.querySelector("#ef-desc")?.value,serial:cSelVal("ef-serial"),duedate:d.querySelector("#ef-duedate")?.value,dby:cSelVal("ef-designedby"),rby:cSelVal("ef-reviewedby"),mby:cSelVal("ef-mfgby"),iby:cSelVal("ef-inspby"),wu:collectWu(wuCon)});
