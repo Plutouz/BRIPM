@@ -272,6 +272,14 @@ function _csOpen(triggerId){
   host.addEventListener("close",()=>{document.removeEventListener("keydown",kh,{capture:true});},{once:true});
 }
 
+// Parse YYYY-MM-DD as local date (avoids UTC midnight rollback bug)
+function parseLocalDate(str){
+  if(!str)return null;
+  const[y,m,d]=(str||"").split("-").map(Number);
+  if(!y||!m||!d)return null;
+  return new Date(y,m-1,d);
+}
+
 // cSel: build trigger HTML and register options
 function cSel(id,options,value,fnName,opts={}){
   _csOpts[id]={options,fnName,currentVal:value};
@@ -468,7 +476,7 @@ const isOverdue=(p)=>{
   if(!p.designDueDate)return false;
   if(p.status!=="In Design"&&p.status!=="Needs Review")return false;
   const today=getCentralToday();
-  const due=new Date(p.designDueDate);due.setHours(0,0,0,0);
+  const due=parseLocalDate(p.designDueDate);
   return due<today;
 };
 const dueDateStyle2=(d)=>{
@@ -803,7 +811,7 @@ function buildTreeView(){
 
   function node(n,depth){
     const r=rollup(n.id,S.parts),hasK=n.children&&n.children.length>0;
-    const isExp=depth===0?true:S.expanded[n.id]!==false,obs=n.status==="Obsolete"||n.status==="Obsolete (OEM)";
+    const isExp=depth===0?true:S.expanded[n.id]===true,obs=n.status==="Obsolete"||n.status==="Obsolete (OEM)";
     const orp=isOrphan(n,S.parts),sc=sColor(n.status),qty=n._qty||1;
     const showAssignee=NEEDS_ASSIGNEE.includes(n.status)&&n.assignee;
     const ind=depth*18;
@@ -861,7 +869,13 @@ function buildTreeView(){
         ${cSel("tree-code-sel",rootCodes.map(code=>{const pc=(S.projectCodes||[]).find(x=>x.code===code);return{value:code,label:pc?fmtProjCode(code,pc.name):"BR"+code};}),S.activeTreeCode,"_cbTreeCode",{style:"width:180px"})}
         ${codeRoots.length>1?cSel("tree-root-sel",codeRoots.map(p=>({value:p.pn,label:fullPN(p.pn,p.rev)+" — "+p.name})),S.activeTreeRoot||codeRoots[0]?.pn||"","_cbTreeRoot",{style:"max-width:300px;"}):""}
       </div>`:""}
-      <div style="font-size:11px;color:var(--text3);margin-bottom:8px">Dbl-click or right-click to edit · <span style="color:var(--purple)">●</span> serialized</div>
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+        <div style="font-size:11px;color:var(--text3)">Dbl-click or right-click to edit · <span style="color:var(--purple)">●</span> serialized</div>
+        <div style="display:flex;gap:6px">
+          <button class="btn sm" id="tree-expand-all" style="font-size:11px;padding:3px 8px">Expand All</button>
+          <button class="btn sm" id="tree-collapse-all" style="font-size:11px;padding:3px 8px">Collapse All</button>
+        </div>
+      </div>
       ${colHdr}
       ${rootParts2.length?rootParts2.map(rp=>node({...rp,_qty:1,children:buildTreeNodes(S.parts,rp.pn)},0)).join(""):`<div class="empty" style="padding:30px 0">No parts yet.</div>`}
       ${unplacedParts.length?`<div style="margin-top:14px;border-top:1px solid var(--border);padding-top:10px">
@@ -1166,7 +1180,7 @@ function buildMfgView(){
 
     ${(()=>{
       const today=getCentralToday();
-      const isOrderOverdue=o=>o.dueDate&&new Date(o.dueDate)<today&&!["Complete","Cancelled"].includes(o.status);
+      const isOrderOverdue=o=>o.dueDate&&parseLocalDate(o.dueDate)<today&&!["Complete","Cancelled"].includes(o.status);
       const mfgSortFn=(a,b)=>{
         if(["qty"].includes(S.mfgSort))return((+a[S.mfgSort]||0)-(+b[S.mfgSort]||0))*S.mfgSortDir;
         let av=a[S.mfgSort]||"",bv=b[S.mfgSort]||"";
@@ -1431,6 +1445,11 @@ function bindPage(){
     S.assigneeSuggestions=[...new Set([...S.teamMembers,...S.assigneeSuggestions])];
     const cd=document.getElementById("settings-compdate");
     if(cd)S.compDate=cd.value||"";
+    // Collect units from table
+    S.units=Array.from(document.querySelectorAll("#units-tbody tr[data-unit-idx]")).map(row=>({
+      abbr:(row.querySelector(".unit-abbr")?.value||"").trim().toUpperCase().slice(0,2),
+      name:(row.querySelector(".unit-name")?.value||"").trim(),
+    })).filter(u=>u.abbr);
     // Collect project codes from table
     S.projectCodes=Array.from(document.querySelectorAll("#pc-tbody tr[data-pc-idx]")).map(row=>({
       code:(row.querySelector(".pc-code")?.value||"").trim().slice(0,2),
@@ -1547,6 +1566,13 @@ function bindPage(){
     row.addEventListener("contextmenu",e=>{e.preventDefault();openCtxTree(e,id);});
   });
   document.getElementById("toggle-unplaced")?.addEventListener("click",()=>{S.expanded.__unplaced=S.expanded.__unplaced===false?true:false;render();});
+  document.getElementById("tree-expand-all")?.addEventListener("click",()=>{
+    S.parts.filter(p=>!p.isOem).forEach(p=>{S.expanded[p.id]=true;});
+    S.expanded.__unplaced=true;render();
+  });
+  document.getElementById("tree-collapse-all")?.addEventListener("click",()=>{
+    S.expanded={__unplaced:false};render();
+  });
   document.getElementById("detail-edit")?.addEventListener("click",()=>{const p=S.selected;if(p)p.isOem?openEditOem(p.id):openEdit(p.id);});
   document.getElementById("detail-del")?.addEventListener("click",()=>promptDelete(S.selected?.id));
   document.getElementById("detail-serials")?.addEventListener("click",e=>openSerialModal(e.currentTarget.dataset.id||S.selected?.id));
@@ -2167,7 +2193,7 @@ function openPieChart(id,metric){
     const labels=[],data=[],colors=[];
     kids.forEach((c,i)=>{const q=qtyInParent(c,p.pn);const cr=rollup(c.id,S.parts);const val=(metric==="cost"?cr.cost:cr.mass)*q;if(val>0){labels.push(`${c.name}${q>1?` ×${q}`:""}`);data.push(metric==="cost"?Math.round(val*100)/100:Math.round(val*1000)/1000);colors.push(CHART_COLORS[i%CHART_COLORS.length]);}});
     if(!data.length){canvas.insertAdjacentHTML("afterend","<div style='text-align:center;color:var(--text3);padding:20px'>No data.</div>");return;}
-    chartInst=new Chart(canvas,{type:"pie",data:{labels,datasets:[{data,backgroundColor:colors,borderColor:"#141416",borderWidth:2}]},options:{responsive:false,plugins:{legend:{position:"bottom",labels:{color:"#9898b0",font:{size:12},padding:12,boxWidth:14}},tooltip:{callbacks:{label:ctx=>{const v=ctx.parsed,tot=data.reduce((a,b)=>a+b,0),pct=tot>0?((v/tot)*100).toFixed(1):0;return` ${ctx.label}: ${metric==="cost"?"$"+Math.round(v).toLocaleString():v.toFixed(3)+" kg"} (${pct}%)`;}}}}}});
+    chartInst=new Chart(canvas,{type:"pie",data:{labels,datasets:[{data,backgroundColor:colors,borderColor:"#141416",borderWidth:2}]},options:{responsive:false,plugins:{legend:{position:"bottom",labels:{color:"#9898b0",font:{size:12},padding:12,boxWidth:14}},tooltip:{callbacks:{label:ctx=>{const v=ctx.parsed,tot=data.reduce((a,b)=>a+b,0),pct=tot>0?((v/tot)*100).toFixed(1):0;return` ${ctx.label}: ${metric==="cost"?"$"+Math.round(v).toLocaleString():v.toFixed(3)+" lb"} (${pct}%)`;}}}}}});
   },50);
 }
 // Get direct serialized children of a part
@@ -2246,14 +2272,17 @@ function applyMfgAttribs(o, prevStatus, newStatus, prevAssignee){
     if(_ro){_ro.manufacturedBy=mfgByVal;_ro.inspectedBy=assignee;}
     o.manufacturedBy=mfgByVal;o.inspectedBy=assignee;
     saveLocal(S.parts,S.mfgOrders);
+    if(S.connected&&getFbCfg())fbUpsertOrder(_ro||o);
   } else if(prevStatus==="In Progress"){
     if(_ro){_ro.manufacturedBy=mfgByVal;}
     o.manufacturedBy=mfgByVal;
     saveLocal(S.parts,S.mfgOrders);
+    if(S.connected&&getFbCfg())fbUpsertOrder(_ro||o);
   } else if(prevStatus==="Needs Inspection"){
     if(_ro){_ro.manufacturedBy=mfgByVal;_ro.inspectedBy=assignee;}
     o.manufacturedBy=mfgByVal;o.inspectedBy=assignee;
     saveLocal(S.parts,S.mfgOrders);
+    if(S.connected&&getFbCfg())fbUpsertOrder(_ro||o);
   }
 }
 
@@ -2822,6 +2851,7 @@ function _initCallbacks(){
       if(!o.completedDate)o.completedDate=getCentralToday().toISOString().slice(0,10);
     }
     saveLocal(S.parts,S.mfgOrders);
+    if(S.connected&&getFbCfg())fbUpsertOrder(o);
     requestAnimationFrame(()=>window.scrollTo({top:scrollY,behavior:"instant"}));
     applyMfgAttribs(o,prev,val,prevAssignee);
     if(val==="Complete"&&prev!=="Complete"){
@@ -2966,11 +2996,11 @@ function buildDmView(){
   const today=new Date();today.setHours(0,0,0,0);
   const upcomingDl=(S.deadlines||[])
     .filter(d=>!d.completed)
-    .sort((a,b)=>new Date(a.date)-new Date(b.date));
+    .sort((a,b)=>(parseLocalDate(a.date)||0)-(parseLocalDate(b.date)||0));
   const nextDl=upcomingDl[0];
 
   function dlCard(d,big){
-    const dueDate=new Date(d.date);dueDate.setHours(0,0,0,0);
+    const dueDate=parseLocalDate(d.date);if(!dueDate)return"";
     const days=Math.ceil((dueDate-today)/864e5);
     const isToday=days===0,isTomorrow=days===1||days===2;
     const color=days<=0?"var(--red3)":isTomorrow?"var(--amber-text)":"var(--text)";
@@ -3130,7 +3160,7 @@ function buildDmView(){
           <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
             ${isActive?`<span style="font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.1em;color:var(--red3);background:#1e0808;border:1px solid var(--red3);border-radius:3px;padding:1px 5px;flex-shrink:0">Isolated</span>`:""}
             <div style="width:11px;height:11px;border-radius:50%;background:${sColor(assy.status)};flex-shrink:0;box-shadow:0 0 6px ${sColor(assy.status)}55"></div>
-            <span style="font-family:var(--mono);font-size:11px;color:var(--text3);flex-shrink:0">${fullPN(assy.pn,assy.rev)}</span>
+            <span style="font-family:var(--mono);font-size:11px;color:var(--text);flex-shrink:0">${fullPN(assy.pn,assy.rev)}</span>
             <span style="font-size:13px;font-weight:700;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${assy.name}</span>
             ${assy.assignee?`<span style="font-size:11px;padding:2px 7px;border-radius:10px;background:var(--bg4);border:1px solid var(--border2);color:var(--text2);white-space:nowrap;flex-shrink:0">${assy.assignee}</span>`:""}            
             <span style="flex:1"></span>
@@ -3201,7 +3231,7 @@ function openDeadlinesDialog(){
     </div>`).join("");
   }
 
-  const sortedDeadlines=[...(S.deadlines||[])].sort((a,b)=>new Date(a.date||0)-new Date(b.date||0));
+  const sortedDeadlines=[...(S.deadlines||[])].sort((a,b)=>(parseLocalDate(a.date)||0)-(parseLocalDate(b.date)||0));
   const d=openDlg("deadlines","min(520px,96vw)",`
   <div class="dh"><div class="dh-title">Edit Major Deadlines</div><button id="dl-x" class="btn icon" style="margin-left:auto">${I.x}</button></div>
   <div class="db">
@@ -3216,7 +3246,7 @@ function openDeadlinesDialog(){
   d.querySelector("#dl-add").addEventListener("click",()=>{const dls=collect();dls.push({name:"",date:""});d.querySelector("#dl-rows").innerHTML=buildRows(dls);rebind();});
   d.querySelector("#dl-cancel").addEventListener("click",()=>closeDlg("deadlines"));
   d.querySelector("#dl-x").addEventListener("click",()=>closeDlg("deadlines"));
-  d.querySelector("#dl-save").addEventListener("click",()=>{S.deadlines=collect().sort((a,b)=>new Date(a.date||0)-new Date(b.date||0));saveLocal(S.parts,S.mfgOrders);closeDlg("deadlines");render();});
+  d.querySelector("#dl-save").addEventListener("click",()=>{S.deadlines=collect().sort((a,b)=>(parseLocalDate(a.date)||0)-(parseLocalDate(b.date)||0));saveLocal(S.parts,S.mfgOrders);closeDlg("deadlines");render();});
 }
 
 // ══════════════════════════════════════════════════
