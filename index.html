@@ -688,7 +688,7 @@ function buildSidebar(){
   const topCost=topLevel.reduce((s,p)=>s+rollup(p.id,S.parts).cost,0);
   const topMass=topLevel.reduce((s,p)=>s+rollup(p.id,S.parts).mass,0);
   return`<div class="sidebar">
-    <div class="sidebar-logo"><img src="${LOGO_URI}" alt="Bama Racing"><div class="sidebar-car">Inventory &amp; Part Manager</div></div>
+    <div class="sidebar-logo"><img src="${LOGO_URI}" alt="Bama Racing"><div class="sidebar-car">Inventory &amp; Part Manager<span style="font-size:10px;opacity:.5;margin-left:6px">v70</span></div></div>
     <div class="nav-section">Views</div>
     <button class="nav-btn ${S.view==="dm"?"active":""}" id="nav-dm">${I.dm} Design Manager</button>
     <button class="nav-btn ${S.view==="tree"?"active":""}" id="nav-tree">${I.tree} Assembly Tree</button>
