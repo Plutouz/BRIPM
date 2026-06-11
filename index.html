@@ -272,6 +272,11 @@ function _csOpen(triggerId){
   host.addEventListener("close",()=>{document.removeEventListener("keydown",kh,{capture:true});},{once:true});
 }
 
+// Persist tree expanded state across refreshes (stored in localStorage, never synced)
+const EXP_KEY='ipm_tree_expanded';
+function saveExpanded(){try{localStorage.setItem(EXP_KEY,JSON.stringify(S.expanded));}catch(e){}}
+function loadExpanded(){try{const r=localStorage.getItem(EXP_KEY);return r?JSON.parse(r):{__unplaced:false};}catch(e){return{__unplaced:false};}}
+
 // Parse YYYY-MM-DD as local date (avoids UTC midnight rollback bug)
 function parseLocalDate(str){
   if(!str)return null;
@@ -431,7 +436,6 @@ function getDeployedSerialsForParentSn(part,parentSn,allParts){
 function getUnassignedSerials(part){return(part.serials||[]).filter(s=>s.locationKind==="storage"||s.locationKind==="disposed"||!s.locationKind);}
 function qtyDeployed(part,allParts){return(part.serials||[]).filter(s=>snDeployed(s,allParts)).length;}
 function qtyOnHand(part,allParts){
-  const inStorage=part.storageQty||0;
   const deployed=part.serialized?qtyDeployed(part,allParts||[]):0;
   return{onHand:inStorage+deployed,inStorage,deployed};
 }
@@ -917,14 +921,12 @@ function buildDetailPanel(sel){
       <div class="df"><div class="df-l">Mass (rolled up)</div><div class="df-v" id="detail-mass-chart" style="cursor:${hK?"pointer":"default"}">${fmtM(sr.mass)} ${hK?I.pie:""}</div></div>
       ${!sel.isOem
         ?`<div class="df"><div class="df-l">Material</div><div class="df-v">${sel.material||"—"}</div></div>
-          <div class="df"><div class="df-l">Location</div><div class="df-v">${sel.location||"—"}</div></div>
-          <div class="df"><div class="df-l">Qty on Hand</div><div class="df-v">${sel.serialized?`${onHand} (${inStorage} in storage)`:String(inStorage)}</div></div>`
+          <div class="df"><div class="df-l">Location</div><div class="df-v">${sel.location||"—"}</div></div>`
         :`<div class="df"><div class="df-l">Manufacturer</div><div class="df-v">${sel.manufacturer||"—"}</div></div>
           <div class="df"><div class="df-l">Unit</div><div class="df-v">${sel.unit||"each"}</div></div>
           <div class="df"><div class="df-l">Unit Cost</div><div class="df-v">${fmtC(sel.unitCost||sel.pkgCost||0)} / ${sel.unit||"ea"}</div></div>
           <div class="df"><div class="df-l">Unit Mass</div><div class="df-v">${fmtM(parseFloat(sel.unitMass)||0)} / ${sel.unit||"ea"}</div></div>
-          <div class="df"><div class="df-l">Stock</div><div class="df-v">${sel.stockQty||sel.pkgQty||1} ${sel.stockUnit||sel.unit||""} @ ${fmtC(sel.stockCost||sel.pkgCost||0)}</div></div>
-          <div class="df"><div class="df-l">In Storage</div><div class="df-v">${sel.storageQty||0}</div></div>`}
+          <div class="df"><div class="df-l">Stock</div><div class="df-v">${sel.stockQty||sel.pkgQty||1} ${sel.stockUnit||sel.unit||""} @ ${fmtC(sel.stockCost||sel.pkgCost||0)}</div></div>`}
       ${sel.assignee?`<div class="df" style="grid-column:1/-1"><div class="df-l">Assignee</div><div class="df-v">${sel.assignee}</div></div>`:""}
       ${sel.designedBy?`<div class="df"><div class="df-l">Designed By</div><div class="df-v">${sel.designedBy}</div></div>`:""}
       ${sel.reviewedBy?`<div class="df"><div class="df-l">Reviewed By</div><div class="df-v">${sel.reviewedBy}</div></div>`:""}
@@ -1557,7 +1559,7 @@ function bindPage(){
   document.querySelectorAll(".tree-node").forEach(node=>{
     const id=node.dataset.id,row=node.querySelector(".tree-row");if(!row)return;
     row.addEventListener("click",e=>{
-      if(e.target.closest(".tree-toggle")){S.expanded[id]=S.expanded[id]===false?true:false;render();return;}
+      if(e.target.closest(".tree-toggle")){S.expanded[id]=S.expanded[id]===true?false:true;saveExpanded();render();return;}
       if(e.target.closest(".tree-chart-btn")){const el=e.target.closest(".tree-chart-btn");openPieChart(el.dataset.id,el.dataset.metric);return;}
       if(e.target.closest(".serial-dot-btn,.sn-clickable"))return;
       S.selected=S.selected?.id===id?null:S.parts.find(x=>x.id===id);render();
@@ -1565,13 +1567,13 @@ function bindPage(){
     row.addEventListener("dblclick",e=>{if(e.target.closest(".tree-chart-btn,.serial-dot-btn,.sn-clickable"))return;const p=S.parts.find(x=>x.id===id);if(p)p.isOem?openEditOem(id):openEdit(id);});
     row.addEventListener("contextmenu",e=>{e.preventDefault();openCtxTree(e,id);});
   });
-  document.getElementById("toggle-unplaced")?.addEventListener("click",()=>{S.expanded.__unplaced=S.expanded.__unplaced===false?true:false;render();});
+  document.getElementById("toggle-unplaced")?.addEventListener("click",()=>{S.expanded.__unplaced=!S.expanded.__unplaced;saveExpanded();render();});
   document.getElementById("tree-expand-all")?.addEventListener("click",()=>{
     S.parts.filter(p=>!p.isOem).forEach(p=>{S.expanded[p.id]=true;});
-    S.expanded.__unplaced=true;render();
+    S.expanded.__unplaced=true;saveExpanded();render();
   });
   document.getElementById("tree-collapse-all")?.addEventListener("click",()=>{
-    S.expanded={__unplaced:false};render();
+    S.expanded={__unplaced:false};saveExpanded();render();
   });
   document.getElementById("detail-edit")?.addEventListener("click",()=>{const p=S.selected;if(p)p.isOem?openEditOem(p.id):openEdit(p.id);});
   document.getElementById("detail-del")?.addEventListener("click",()=>promptDelete(S.selected?.id));
@@ -2019,7 +2021,7 @@ Update the part number or add this project code in Settings.`);
         return false;
       }
     }
-    const part={...p,pn:rawPn,rev:cSelVal("ef-rev")||"-",name:nv,status:cSelVal("ef-status")||"In Design",assignee:cSelVal("ef-assignee")||"",whereUsed:collectWu(wuCon),matCost:kids?r.cost:(parseFloat(d.querySelector("#ef-cost")?.value)||0),mass:kids?r.mass:(parseFloat(d.querySelector("#ef-mass")?.value)||0),material:kids?"N/A":(d.querySelector("#ef-mat")?.value||""),location:d.querySelector("#ef-loc")?.value||"",drawingUrl:d.querySelector("#ef-draw")?.value||"",desc:d.querySelector("#ef-desc")?.value||"",serialized:cSelVal("ef-serial")==="1",designDueDate:d.querySelector("#ef-duedate")?.value||"",designedBy:cSelVal("ef-designedby")||p.designedBy||"",reviewedBy:cSelVal("ef-reviewedby")||p.reviewedBy||"",manufacturedBy:cSelVal("ef-mfgby")||p.manufacturedBy||"",inspectedBy:cSelVal("ef-inspby")||p.inspectedBy||"",isOem:false,id:p.id||("p"+Date.now())};
+    const part={...p,pn:rawPn,rev:cSelVal("ef-rev")||"-",name:nv,status:cSelVal("ef-status")||"In Design",assignee:cSelVal("ef-assignee")||"",whereUsed:collectWu(wuCon),matCost:kids?r.cost:(parseFloat(d.querySelector("#ef-cost")?.value)||0),mass:kids?r.mass:(parseFloat(d.querySelector("#ef-mass")?.value)||0),material:kids?"Assembly":(d.querySelector("#ef-mat")?.value||""),location:d.querySelector("#ef-loc")?.value||"",drawingUrl:d.querySelector("#ef-draw")?.value||"",desc:d.querySelector("#ef-desc")?.value||"",serialized:cSelVal("ef-serial")==="1",designDueDate:d.querySelector("#ef-duedate")?.value||"",designedBy:cSelVal("ef-designedby")||p.designedBy||"",reviewedBy:cSelVal("ef-reviewedby")||p.reviewedBy||"",manufacturedBy:cSelVal("ef-mfgby")||p.manufacturedBy||"",inspectedBy:cSelVal("ef-inspby")||p.inspectedBy||"",isOem:false,id:p.id||("p"+Date.now())};
     if(part.assignee&&!S.assigneeSuggestions.includes(part.assignee))S.assigneeSuggestions.push(part.assignee);
     persistPart(part);closeDlg("br");return true;
   };
@@ -2928,7 +2930,7 @@ function _initCallbacks(){
     return m;
   });
   S.assigneeSuggestions=[...new Set(S.parts.map(p=>p.assignee).filter(Boolean))];
-  S.parts.forEach(p=>{S.expanded[p.id]=true;});
+  S.expanded=loadExpanded();
   render();
   _initCallbacks();
   if(getFbCfg())setTimeout(connectFirebase,300);
