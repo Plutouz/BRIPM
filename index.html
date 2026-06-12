@@ -611,7 +611,7 @@ const S={
   view:"tree",parts:[],mfgOrders:[],selected:null,expanded:{__unplaced:true},
   search:"",user:null,syncStatus:"offline",connected:false,error:null,
   sortCol:"pn",sortDir:1,config:loadCfg(),listFocus:-1,assigneeSuggestions:[],
-  listFilter:{},mfgFilter:{},invFilter:{},oemFilter:{},dmFilter:{},dmSubFilter:"",invTab:"br",dmSort:"pn",dmSortDir:1,mfgSort:"mfgNum",mfgSortDir:1,listSort:"pn",listSortDir:1,oemSort:"pn",oemSortDir:1,activeProfile:"",majorAssy:"",
+  listFilter:{},mfgFilter:{},invFilter:{},oemFilter:{},dmFilter:{},dmSubFilter:"",dmSubPath:[],invTab:"br",dmSort:"pn",dmSortDir:1,mfgSort:"mfgNum",mfgSortDir:1,listSort:"pn",listSortDir:1,oemSort:"pn",oemSortDir:1,activeProfile:"",majorAssy:"",
   teamMembers:[],compDate:"",deadlines:[],projectCodes:[],listProjectFilter:"",activeTreeRoot:"",activeTreeCode:"",isolatedTreeRoot:"",
 };
 function memberOptions(selectedVal){
@@ -793,10 +793,6 @@ function buildSettingsView(){
       <button class="btn" id="settings-export">${I.dl} Export Data File</button>
       <button class="btn" id="settings-import">${I.ul} Import Data File</button>
     </div>
-    <hr style="border:none;border-top:1px solid var(--border);margin:20px 0">
-    <div style="font-size:15px;font-weight:700;margin-bottom:4px">Danger Zone</div>
-    <div style="font-size:13px;color:var(--text2);margin-bottom:10px">Permanently delete all parts and orders. Cannot be undone.</div>
-    <button class="btn danger" id="settings-clear-data">Clear All Data</button>
     <hr style="border:none;border-top:1px solid var(--border);margin:20px 0">
     <div style="font-size:15px;font-weight:700;margin-bottom:12px">Firebase Sync</div>
     <button class="btn" id="settings-sp-setup">${I.settings} Configure Firebase</button>
@@ -1411,21 +1407,6 @@ function bindPage(){
     }
     S.view=v;S.search="";render();
   });});
-  document.getElementById("settings-clear-data")?.addEventListener("click",()=>{
-    const d=openDlg("clear-data","min(420px,96vw)",`<div style="padding:26px">
-      <div style="display:flex;gap:10px;align-items:flex-start;margin-bottom:12px">${I.warn}<div style="font-size:15px;font-weight:700;color:var(--text)">Clear all data?</div></div>
-      <div style="font-size:13px;color:var(--text2);line-height:1.6;margin-bottom:20px">This will permanently delete all parts, OEM parts, and manufacturing orders. Team members, deadlines, and settings will be kept. This cannot be undone.</div>
-      <div style="display:flex;justify-content:flex-end;gap:8px">
-        <button id="cd-cancel" class="btn">Cancel</button>
-        <button id="cd-ok" class="btn danger">Delete Everything</button>
-      </div>
-    </div>`);
-    d.querySelector("#cd-cancel").addEventListener("click",()=>closeDlg("clear-data"));
-    d.querySelector("#cd-ok").addEventListener("click",()=>{
-      S.parts=[];S.mfgOrders=[];S.selected=null;S.expanded={__unplaced:true};
-      saveLocal(S.parts,S.mfgOrders);closeDlg("clear-data");render();
-    });
-  });
   // Project codes table
   document.getElementById("units-add-row")?.addEventListener("click",()=>{
     S.units=[...(S.units||[]),{abbr:"",name:""}];
@@ -1532,7 +1513,16 @@ function bindPage(){
   document.querySelectorAll(".dm-sub-card").forEach(card=>{
     card.addEventListener("click",()=>{
       const pn=card.dataset.pn;
-      S.dmSubFilter=S.dmSubFilter===pn?"":pn;
+      const path=S.dmSubPath||[];
+      const idx=path.indexOf(pn);
+      if(idx>=0){
+        // Clicking a card already in the path: truncate to one level above it (unisolate that level)
+        S.dmSubPath=path.slice(0,idx);
+      }else{
+        // Clicking a new child: append to path
+        S.dmSubPath=[...path,pn];
+      }
+      S.dmSubFilter=S.dmSubPath.length?S.dmSubPath[S.dmSubPath.length-1]:"";
       render();
     });
   });
@@ -1607,11 +1597,20 @@ function bindPage(){
   document.getElementById("toggle-unplaced")?.addEventListener("click",()=>{S.expanded.__unplaced=!S.expanded.__unplaced;saveExpanded();render();});
   document.getElementById("tree-unisolate")?.addEventListener("click",()=>{S.isolatedTreeRoot="";render();});
   document.getElementById("tree-expand-all")?.addEventListener("click",()=>{
-    S.parts.filter(p=>!p.isOem).forEach(p=>{S.expanded[p.id]=true;});
-    S.expanded.__unplaced=true;saveExpanded();render();
+    const rootPn=S.isolatedTreeRoot||S.activeTreeRoot;
+    if(rootPn){
+      const root=S.parts.find(p=>p.pn===rootPn);
+      if(root)S.expanded[root.id]=true;
+      getAllDescendants(rootPn,S.parts).forEach(p=>{if(!p.isOem)S.expanded[p.id]=true;});
+    }
+    saveExpanded();render();
   });
   document.getElementById("tree-collapse-all")?.addEventListener("click",()=>{
-    S.expanded={__unplaced:false};saveExpanded();render();
+    const rootPn=S.isolatedTreeRoot||S.activeTreeRoot;
+    if(rootPn){
+      getAllDescendants(rootPn,S.parts).forEach(p=>{S.expanded[p.id]=false;});
+    }
+    saveExpanded();render();
   });
   document.getElementById("detail-edit")?.addEventListener("click",()=>{const p=S.selected;if(p)p.isOem?openEditOem(p.id):openEdit(p.id);});
   document.getElementById("detail-del")?.addEventListener("click",()=>promptDelete(S.selected?.id));
@@ -1880,7 +1879,7 @@ function promptDeleteMfg(id){
   const o=S.mfgOrders.find(x=>x.id===id);if(!o)return;
   const d=openDlg("confirm-mfg","min(400px,96vw)",`<div style="padding:26px"><div style="display:flex;gap:10px;align-items:flex-start;margin-bottom:12px">${I.warn}<div style="font-size:15px;font-weight:700;color:var(--text)">Delete order for "${o.partName}"?</div></div><div style="font-size:13px;color:var(--text2);margin-bottom:20px">This manufacturing order will be permanently removed.</div><div style="display:flex;justify-content:flex-end;gap:8px"><button id="dm-cancel" class="btn">Cancel</button><button id="dm-ok" class="btn danger">Delete</button></div></div>`);
   d.querySelector("#dm-cancel").addEventListener("click",()=>closeDlg("confirm-mfg"));
-  d.querySelector("#dm-ok").addEventListener("click",()=>{S.mfgOrders=S.mfgOrders.filter(x=>x.id!==id);saveLocal(S.parts,S.mfgOrders);closeDlg("confirm-mfg");render();});
+  d.querySelector("#dm-ok").addEventListener("click",()=>{S.mfgOrders=S.mfgOrders.filter(x=>x.id!==id);saveLocal(S.parts,S.mfgOrders);if(S.connected&&getFbCfg())fbDeleteOrder(id);closeDlg("confirm-mfg");render();});
 }
 // ══════════════════════════════════════════════════
 //  ADD COMPONENT / EDIT QTY / SN QUICK ASSIGN
@@ -2280,7 +2279,7 @@ function promptDelete(id){
   const cc=S.parts.filter(x=>(x.whereUsed||[]).some(w=>w.parentPn===p.pn)).length;
   const d=openDlg("confirm","min(440px,96vw)",`<div style="padding:26px"><div style="display:flex;gap:10px;align-items:flex-start;margin-bottom:12px">${I.warn}<div style="font-size:15px;font-weight:700;color:var(--text)">Delete "${p.name}"?</div></div><div style="font-size:13px;color:var(--text2);line-height:1.6;margin-bottom:20px">${cc>0?`Has <strong>${cc} component${cc!==1?"s":""}</strong>. They will remain as orphans.`:"Will be permanently removed."}</div><div style="display:flex;justify-content:flex-end;gap:8px"><button id="dc-cancel" class="btn">Cancel</button><button id="dc-ok" class="btn danger">Delete</button></div></div>`);
   d.querySelector("#dc-cancel").addEventListener("click",()=>closeDlg("confirm"));
-  d.querySelector("#dc-ok").addEventListener("click",()=>{closeDlg("confirm");if(S.connected&&p._spId)spDel(p._spId).catch(e=>{S.error="Delete: "+e.message;});S.parts=S.parts.filter(x=>x.id!==id);if(S.selected?.id===id)S.selected=null;saveLocal(S.parts,S.mfgOrders);
+  d.querySelector("#dc-ok").addEventListener("click",()=>{closeDlg("confirm");if(S.connected&&p._spId)spDel(p._spId).catch(e=>{S.error="Delete: "+e.message;});S.parts=S.parts.filter(x=>x.id!==id);if(S.selected?.id===id)S.selected=null;saveLocal(S.parts,S.mfgOrders);if(S.connected&&getFbCfg())fbDeletePart(id);
     if(S.connected&&getFbCfg())upsertAll(S.parts,S.mfgOrders).catch(()=>{});
     render();});
 }
@@ -2678,6 +2677,11 @@ async function fbPatch(path,data){
     {method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
   if(!r.ok) throw new Error(`Firebase PATCH ${r.status}`);
 }
+async function fbDelete(path){
+  const cfg=getFbCfg();
+  const r=await fetch(`${cfg.databaseURL}/${path}.json`,{method:'DELETE'});
+  if(!r.ok) throw new Error(`Firebase DELETE ${r.status}`);
+}
 
 function fbKey(id){ return (id||'').replace(/[.#$\[\]]/g,'_'); }
 
@@ -2724,6 +2728,16 @@ async function fbUpsertPart(part){
   }
 }
 
+async function fbDeleteOrder(orderId){
+  if(!getFbCfg()) return;
+  try{ await fbDelete('ipm/mfgOrders/'+fbKey(orderId)); }
+  catch(e){ console.warn('[FB delOrder]',e.message); }
+}
+async function fbDeletePart(partId){
+  if(!getFbCfg()) return;
+  try{ await fbDelete('ipm/parts/'+fbKey(partId)); }
+  catch(e){ console.warn('[FB delPart]',e.message); }
+}
 async function fbUpsertOrder(order){
   if(!getFbCfg()) return;
   try{ await fbPatch('ipm/mfgOrders',{[fbKey(order.id)]:order}); }
@@ -3002,7 +3016,7 @@ function _initCallbacks(){
   window._cbTreeCode=(val)=>{S.activeTreeCode=val;S.activeTreeRoot="";render();};
   window._cbTreeRoot=(val)=>{S.activeTreeRoot=val;render();};
   window._cbListProjFilter=(val)=>{S.listProjectFilter=val;render();};
-  window._cbDmMajorAssy=(val)=>{S.majorAssy=val;S.dmSubFilter="";saveLocal(S.parts,S.mfgOrders);render();};
+  window._cbDmMajorAssy=(val)=>{S.majorAssy=val;S.dmSubFilter="";S.dmSubPath=[];saveLocal(S.parts,S.mfgOrders);render();};
   window._cbDmSubFilter=(val)=>{S.dmSubFilter=val;render();};
   window._cbDmSort=(val)=>{S.dmSort=val;render();};
   window._cbMfgSort=(val)=>{S.mfgSort=val;render();};
@@ -3228,28 +3242,12 @@ function buildDmView(){
 
     <!-- SUB-ASSEMBLY BREAKDOWN -->
     ${(()=>{
-      // Use configured major assembly or fall back to all top-level parts
-      const topLevelParts=S.majorAssy
-        ?S.parts.filter(p=>p.pn===S.majorAssy)
-        :S.parts.filter(p=>!p.isOem&&(!p.whereUsed||p.whereUsed.length===0));
-      // 2nd level = direct children of the major assembly
-      const secondLevel=S.parts.filter(p=>
-        !p.isOem&&
-        p.status!=="Obsolete"&&
-        (p.pn||"").slice(-4)==="0000"&&
-        (p.whereUsed||[]).some(w=>topLevelParts.some(t=>t.pn===w.parentPn))
-      ).sort((a,b)=>a.pn.localeCompare(b.pn));
-
-      if(!secondLevel.length)return"";
-
-      const allSubCards=secondLevel.map(assy=>{
-        // Get all descendants of this assembly
+      // Card builder for any assembly part
+      function buildSubCard(assy){
         const desc=getAllDescendants(assy.pn,S.parts).filter(p=>!p.isOem&&p.status!=="Obsolete");
-        // Include the assembly itself
         const allParts=[...new Map([...desc].map(p=>[p.id,p])).values()];
         const subTotal=allParts.length;
         const noChildren=subTotal===0;
-
         const subCounts={
           Manufactured:allParts.filter(p=>p.status==="Manufactured").length,
           "Design Approved":allParts.filter(p=>p.status==="Design Approved").length,
@@ -3259,7 +3257,6 @@ function buildDmView(){
         };
         const subApproved=subCounts["Manufactured"]+subCounts["Design Approved"];
         const subPct=subTotal?subApproved/subTotal*100:0;
-
         const subSegs=[
           {key:"Manufactured",color:"var(--c-mfg)"},
           {key:"Design Approved",color:"var(--c-approved)"},
@@ -3271,10 +3268,9 @@ function buildDmView(){
           if(pct===0)return"";
           return`<div class="dm-seg" style="width:${pct}%;background:${seg.color};height:100%;transition:width .4s;cursor:default" title="${seg.key}: ${subCounts[seg.key]} parts (${pct.toFixed(1)}%)"></div>`;
         }).join("");
-
         const dd2=assy.designDueDate?dueDateStyle2(assy.designDueDate):{style:"",icon:""};
-        const isActive=S.dmSubFilter===assy.pn;
-        return`<div class="dm-sub-card" data-pn="${assy.pn}" style="margin-bottom:10px;padding:12px 14px;background:${isActive?"var(--bg4)":"var(--bg3)"};border:1px solid ${isActive?"var(--red3)":"var(--border)"};${noChildren?"opacity:.6":""};border-radius:var(--r);cursor:pointer;transition:border-color .15s,background .15s" title="${isActive?"Click to exit isolated view":"Click to isolate "+assy.name}">
+        const isActive=(S.dmSubPath||[]).includes(assy.pn);
+        return`<div class="dm-sub-card" data-pn="${assy.pn}" style="margin-bottom:0;padding:12px 14px;background:${isActive?"var(--bg4)":"var(--bg3)"};border:1px solid ${isActive?"var(--red3)":"var(--border)"};${noChildren?"opacity:.6":""};border-radius:var(--r);cursor:pointer;transition:border-color .15s,background .15s" title="${isActive?"Click to exit isolated view":"Click to isolate "+assy.name}">
           <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
             ${isActive?`<span style="font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.1em;color:var(--red3);background:#1e0808;border:1px solid var(--red3);border-radius:3px;padding:1px 5px;flex-shrink:0">Isolated</span>`:""}
             <div style="width:11px;height:11px;border-radius:50%;background:${sColor(assy.status)};flex-shrink:0;box-shadow:0 0 6px ${sColor(assy.status)}55"></div>
@@ -3290,18 +3286,57 @@ function buildDmView(){
             ${noChildren||!subTotal?`<div style="width:100%;background:var(--bg4);height:100%"></div>`:subSegs}
           </div>
         </div>`;
-      }).filter(Boolean);
-      // In isolated mode, only show the active card
-      const subCards=S.dmSubFilter
-        ?allSubCards.filter(h=>h.includes(`data-pn="${S.dmSubFilter}"`)).join("")
-        :allSubCards.join("");
+      }
 
-      if(!subCards)return"";
+      // Direct children of a parent PN (non-OEM); assemblies are isolatable, leaf parts just show status
+      function childAssemblies(parentPn){
+        return S.parts.filter(p=>
+          !p.isOem&&p.status!=="Obsolete"&&
+          (p.whereUsed||[]).some(w=>w.parentPn===parentPn)
+        ).sort((a,b)=>{
+          const ah=hasKids(a.pn,S.parts),bh=hasKids(b.pn,S.parts);
+          if(ah!==bh)return ah?-1:1;
+          return a.pn.localeCompare(b.pn);
+        });
+      }
+
+      const topLevelParts=S.majorAssy
+        ?S.parts.filter(p=>p.pn===S.majorAssy)
+        :S.parts.filter(p=>!p.isOem&&(!p.whereUsed||p.whereUsed.length===0));
+      const secondLevel=S.parts.filter(p=>
+        !p.isOem&&p.status!=="Obsolete"&&(p.pn||"").slice(-4)==="0000"&&
+        (p.whereUsed||[]).some(w=>topLevelParts.some(t=>t.pn===w.parentPn))
+      ).sort((a,b)=>a.pn.localeCompare(b.pn));
+
+      const path=(S.dmSubPath||[]).filter(pn=>S.parts.find(p=>p.pn===pn));
+      if(!secondLevel.length&&!path.length)return"";
+
+      // ISOLATED MODE: show each level of the breadcrumb path as a full-width isolated card,
+      // then under the deepest level, show its children 2-wide.
+      if(path.length){
+        const levelCards=path.map(pn=>{
+          const anchor=S.parts.find(p=>p.pn===pn);
+          return anchor?buildSubCard(anchor):"";
+        }).join('<div style="height:8px"></div>');
+        const deepest=path[path.length-1];
+        const anchor=S.parts.find(p=>p.pn===deepest);
+        const kids=childAssemblies(deepest);
+        const kidCards=kids.map(buildSubCard).join("");
+        return`<div class="card" style="margin-bottom:12px">
+          <div style="font-size:15px;font-weight:700;margin-bottom:12px">Sub-Assembly Progress <span style="font-size:11px;font-weight:400;color:var(--text3)">— click an isolated card to step back to it</span></div>
+          ${levelCards}
+          ${kids.length?`<div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--border)">
+            <div style="font-size:11px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.08em;margin-bottom:10px">Components of ${anchor.name} <span style="font-weight:400;text-transform:none;letter-spacing:0">— click an assembly to isolate further</span></div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">${kidCards}</div>
+          </div>`:`<div style="margin-top:12px;font-size:12px;color:var(--text3)">No components under this part.</div>`}
+        </div>`;
+      }
+
+      // NORMAL MODE: grid of all second-level cards, 2-wide
+      const subCards=secondLevel.map(buildSubCard).join("");
       return`<div class="card" style="margin-bottom:12px">
-        <div style="font-size:15px;font-weight:700;margin-bottom:12px">Sub-Assembly Progress${S.dmSubFilter?` <span style="font-size:11px;font-weight:400;color:var(--text3)">— click card to exit isolated view</span>`:" <span style='font-size:11px;font-weight:400;color:var(--text3)'>— click a card to isolate</span>"}</div>
-        <div style="display:grid;grid-template-columns:${S.dmSubFilter?"1fr":"1fr 1fr"};gap:8px">
-          ${subCards}
-        </div>
+        <div style="font-size:15px;font-weight:700;margin-bottom:12px">Sub-Assembly Progress <span style='font-size:11px;font-weight:400;color:var(--text3)'>— click a card to isolate</span></div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">${subCards}</div>
       </div>`;
     })()}
 
