@@ -510,6 +510,7 @@ function isLowCodePart(p){return isLowCode(getProjCode(p.pn));}
 function fmtProjCode(code,name){return name?`${code} - ${name}`:code;}
 
 const isUnplaced=p=>!p.isOem&&(!p.whereUsed||p.whereUsed.length===0)&&!isLowCode(getProjCode(p.pn))&&!isMasterPN(p.pn);
+const esc=s=>String(s==null?"":s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
 const hasKids=(pn,parts)=>parts.some(x=>(x.whereUsed||[]).some(w=>w.parentPn===pn));
 
 // ══════════════════════════════════════════════════
@@ -520,6 +521,32 @@ const OEM_ST=["Current","Obsolete (OEM)"];
 const NEEDS_ASSIGNEE=["In Design","Needs Review","Needs Revision"];
 const MFG_ST=["Open","In Progress","Needs Inspection","Complete","On Hold","Cancelled"];
 const REV_OPTS=["-","A","B","C","D","E","F","G","H","J","K","L","M","N","P","Q","R","S","T","U","V","W","X","Y","Z"];
+function openCreditsDialog(kind, id){
+  const obj=kind==="mfg"?S.mfgOrders.find(x=>x.id===id):S.parts.find(x=>x.id===id);
+  if(!obj)return;
+  const credits=(obj.credits||[]).slice().reverse();
+  const title=kind==="mfg"?`${obj.mfgNum||""} ${esc(obj.partName||"")}`:`${fullPN(obj.pn,obj.rev)} — ${esc(obj.name||"")}`;
+  const rows=credits.length?credits.map(cr=>`
+    <div style="display:grid;grid-template-columns:1fr auto;gap:8px;padding:10px 0;border-bottom:1px solid var(--border)">
+      <div>
+        <div style="font-size:13px;color:var(--text)"><span style="color:${sColor(cr.from)};font-weight:600">${cr.from}</span> <span style="color:var(--text3)">→</span> <span style="color:${sColor(cr.to)};font-weight:600">${cr.to}</span></div>
+        <div style="font-size:12px;color:var(--text2);margin-top:2px">${esc(cr.assignee||"(unassigned)")}</div>
+      </div>
+      <div style="font-family:var(--mono);font-size:12px;color:var(--text3);white-space:nowrap">${cr.date||""}</div>
+    </div>`).join(""):`<div style="padding:24px 0;text-align:center;color:var(--text3);font-size:13px">No credits logged yet.</div>`;
+  const d=openDlg("credits","min(460px,96vw)",`
+  <div class="dh"><div class="dh-title">Credits — ${title}</div><button id="cr-x" class="btn icon" style="margin-left:auto">${I.x}</button></div>
+  <div class="db">${rows}</div>
+  <div class="df"><button id="cr-close" class="btn primary">Close</button></div>`);
+  d.querySelector("#cr-x").addEventListener("click",()=>closeDlg("credits"));
+  d.querySelector("#cr-close").addEventListener("click",()=>closeDlg("credits"));
+}
+
+function logCredit(obj, fromStatus, toStatus, assignee){
+  if(!obj.credits)obj.credits=[];
+  obj.credits.push({from:fromStatus,to:toStatus,assignee:assignee||"(unassigned)",date:getCentralToday().toISOString().slice(0,10)});
+}
+const nextRev=cur=>{const i=REV_OPTS.indexOf(cur||"-");return(i>=0&&i<REV_OPTS.length-1)?REV_OPTS[i+1]:cur;};
 function sColor(s){
   if(s==="In Design")return"var(--c-indesign)";
   if(s==="Needs Review")return"var(--c-review)";
@@ -571,6 +598,7 @@ const I={
   warn:`<svg ${SZ} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink:0"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>`,
   serial:`<svg ${SZ} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink:0"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 21V5a2 2 0 00-2-2h-4a2 2 0 00-2 2v16"/></svg>`,
   dl:`<svg ${SZ} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>`,
+  credits:`<svg ${SZ} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="6"/><path d="M15.5 13.5L17 22l-5-3-5 3 1.5-8.5"/></svg>`,
   ul:`<svg ${SZ} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>`,
   link:`<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71"/></svg>`,
   pie:`<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:middle;flex-shrink:0"><path d="M21.21 15.89A10 10 0 118 2.83"/><path d="M22 12A10 10 0 0012 2v10z"/></svg>`,
@@ -622,9 +650,9 @@ function memberDatalist(id){
   const members=S.teamMembers.length?S.teamMembers:S.assigneeSuggestions;
   return`<datalist id="${id}">${members.map(m=>`<option value="${m}">`).join("")}</datalist>`;
 }
-const blank=(pp="")=>({id:"",pn:"",rev:"-",name:"",whereUsed:pp?[{parentPn:pp,qty:1}]:[],status:"In Design",matCost:0,mass:0,desc:"",location:"",material:"",drawingUrl:"",serialized:false,serials:[],assignee:"",isOem:false,storageQty:0});
+const blank=(pp="")=>({id:"",pn:"",rev:"-",name:"",whereUsed:pp?[{parentPn:pp,qty:1}]:[],status:"In Design",matCost:0,mass:0,desc:"",location:"",material:"",drawingUrl:"",serialized:false,serials:[],assignee:"",isOem:false,credits:[]});
 const blankOem=(pp="")=>({id:"",pn:"",rev:"-",name:"",whereUsed:pp?[{parentPn:pp,qty:1}]:[],status:"Current",desc:"",drawingUrl:"",productUrl:"",location:"",serialized:false,serials:[],isOem:true,manufacturer:"",unit:"each",unitCost:0,unitMass:0,stockQty:1,stockUnit:"",stockCost:0,storageQty:0});
-const blankMfg=(partId)=>{const p=S.parts.find(x=>x.id===partId)||{};return{id:"mfg"+Date.now(),mfgNum:nextMfgNum(S.mfgOrders),partId,partPn:p.pn||"",partName:p.name||"",assignee:"",dueDate:"",qty:1,stockNos:"",revision:p.rev||"-",material:p.material||"",storageLocation:p.location||"",status:"Open",notes:"",manufacturedBy:"",inspectedBy:"",createdAt:new Date().toISOString().slice(0,10)};};
+const blankMfg=(partId)=>{const p=S.parts.find(x=>x.id===partId)||{};return{id:"mfg"+Date.now(),mfgNum:nextMfgNum(S.mfgOrders),partId,partPn:p.pn||"",partName:p.name||"",assignee:"",dueDate:"",qty:1,stockNos:"",revision:p.rev||"-",material:p.material||"",storageLocation:p.location||"",status:"Open",notes:"",credits:[],createdAt:new Date().toISOString().slice(0,10)};};
 function nextMfgNum(orders){
   if(!orders||!orders.length)return"M0001";
   const nums=orders.map(o=>{const m=(o.mfgNum||"").match(/M(\d+)/);return m?parseInt(m[1]):0;});
@@ -704,7 +732,7 @@ function buildSidebar(){
   const topCost=topLevel.reduce((s,p)=>s+rollup(p.id,S.parts).cost,0);
   const topMass=topLevel.reduce((s,p)=>s+rollup(p.id,S.parts).mass,0);
   return`<div class="sidebar">
-    <div class="sidebar-logo"><img src="${LOGO_URI}" alt="Bama Racing"><div class="sidebar-car">Inventory &amp; Part Manager<span style="font-size:10px;opacity:.5;margin-left:6px">v1</span></div></div>
+    <div class="sidebar-logo"><img src="${LOGO_URI}" alt="Bama Racing"><div class="sidebar-car">Inventory &amp; Part Manager<span style="font-size:10px;opacity:.5;margin-left:6px">v2</span></div></div>
     <div class="nav-section">Views</div>
     <button class="nav-btn ${S.view==="dm"?"active":""}" id="nav-dm">${I.dm} Design Manager</button>
     <button class="nav-btn ${S.view==="tree"?"active":""}" id="nav-tree">${I.tree} Assembly Tree</button>
@@ -762,7 +790,7 @@ function buildSettingsView(){
       <tbody id="pc-tbody">
         ${[...(S.projectCodes||[])].sort((a,b)=>parseInt(a.code||99)-parseInt(b.code||99)).map((pc,i)=>`<tr data-pc-idx="${i}" style="border-bottom:1px solid var(--border)">
           <td style="padding:4px 6px"><input class="pc-code" type="text" maxlength="2" value="${pc.code||""}" autocomplete="off" style="width:60px;padding:6px 8px;border:1px solid var(--border2);border-radius:var(--r);background:var(--bg3);color:var(--text);font-family:var(--mono);font-size:13px"></td>
-          <td style="padding:4px 6px"><input class="pc-name" type="text" value="${pc.name||""}" autocomplete="off" placeholder="e.g. BR26" style="width:100%;padding:6px 8px;border:1px solid var(--border2);border-radius:var(--r);background:var(--bg3);color:var(--text);font-family:var(--sans);font-size:13px"></td>
+          <td style="padding:4px 6px"><input class="pc-name" type="text" value="${esc(pc.name)}" autocomplete="off" placeholder="e.g. BR26" style="width:100%;padding:6px 8px;border:1px solid var(--border2);border-radius:var(--r);background:var(--bg3);color:var(--text);font-family:var(--sans);font-size:13px"></td>
           <td style="padding:4px 6px"><button class="btn icon danger pc-del" data-idx="${i}" type="button">${I.trash}</button></td>
         </tr>`).join("")}
       </tbody>
@@ -780,7 +808,7 @@ function buildSettingsView(){
       <tbody id="units-tbody">
         ${(S.units||[]).map((u,i)=>`<tr data-unit-idx="${i}" style="border-bottom:1px solid var(--border)">
           <td style="padding:4px 6px"><input class="unit-abbr" type="text" maxlength="2" value="${u.abbr||""}" autocomplete="off" style="width:60px;padding:6px 8px;border:1px solid var(--border2);border-radius:var(--r);background:var(--bg3);color:var(--text);font-family:var(--mono);font-size:13px;text-transform:uppercase"></td>
-          <td style="padding:4px 6px"><input class="unit-name" type="text" value="${u.name||""}" autocomplete="off" placeholder="e.g. Each" style="width:100%;padding:6px 8px;border:1px solid var(--border2);border-radius:var(--r);background:var(--bg3);color:var(--text);font-family:var(--sans);font-size:13px"></td>
+          <td style="padding:4px 6px"><input class="unit-name" type="text" value="${esc(u.name)}" autocomplete="off" placeholder="e.g. Each" style="width:100%;padding:6px 8px;border:1px solid var(--border2);border-radius:var(--r);background:var(--bg3);color:var(--text);font-family:var(--sans);font-size:13px"></td>
           <td style="padding:4px 6px"><button class="btn icon danger unit-del" data-idx="${i}" type="button">${I.trash}</button></td>
         </tr>`).join("")}
       </tbody>
@@ -836,7 +864,7 @@ function buildTreeView(){
         <div style="display:flex;align-items:center;gap:5px;min-width:0;padding-left:${ind}px">
           <span class="${depth===0?"":"tree-toggle"}" style="flex-shrink:0;${depth===0?"cursor:default;":""}">${depth===0?(hasK?"":""):(hasK?(isExp?"▾":"▸"):" ")}</span>
           <span style="font-family:var(--mono);font-size:11px;color:${n.isOem?"var(--blue-text)":isConsumable(n.pn)?"#eab308":"var(--text)"};flex-shrink:0;white-space:nowrap">${fullPN(n.pn,n.rev)}</span>
-          <span style="color:${orp?"var(--red3)":n.isOem?"var(--text)":sColor(n.status)};font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${n.name}">${n.name}</span>
+          <span style="color:${orp?"var(--red3)":n.isOem?"var(--text)":sColor(n.status)};font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(n.name)}">${esc(n.name)}</span>
           ${n.serialized?`<span class="serial-dot-btn" data-id="${n.id}" style="color:var(--purple);font-size:10px;cursor:pointer;flex-shrink:0">●</span>`:""}
           ${showAssignee?`<span class="assignee-chip" style="flex-shrink:0">${n.assignee}</span>`:""}
         </div>
@@ -889,7 +917,7 @@ function buildTreeView(){
           <span style="margin-left:auto;color:var(--text3)">${S.expanded.__unplaced!==false?"▾":"▸"}</span>
         </div>
         ${S.expanded.__unplaced!==false?`<div>${unplacedParts.map(p=>{const r=rollup(p.id,S.parts);return`<div class="tree-node" data-id="${p.id}"><div class="tree-row orphan" style="display:grid;grid-template-columns:minmax(240px,1fr) 44px 130px 110px;align-items:center;padding:3px 4px;border-radius:5px">
-          <div style="display:flex;align-items:center;gap:5px;padding-left:0"><span class="tree-toggle"> </span><span style="font-family:var(--mono);font-size:11px;color:var(--text2);white-space:nowrap">${fullPN(p.pn,p.rev)}</span><span style="color:var(--red3);font-size:13px">${p.name}</span></div>
+          <div style="display:flex;align-items:center;gap:5px;padding-left:0"><span class="tree-toggle"> </span><span style="font-family:var(--mono);font-size:11px;color:var(--text2);white-space:nowrap">${fullPN(p.pn,p.rev)}</span><span style="color:var(--red3);font-size:13px">${esc(p.name)}</span></div>
           <div></div><div style="font-family:var(--mono);font-size:11px;color:var(--text2);padding-left:4px">${fmtC(r.cost)}</div><div style="font-family:var(--mono);font-size:11px;color:var(--text2);padding-left:4px">${fmtM(r.mass)}</div>
         </div></div>`;}).join("")}</div>`:""}
       </div>`:""}
@@ -909,10 +937,11 @@ function buildDetailPanel(sel){
     <div style="display:flex;align-items:flex-start;gap:8px;margin-bottom:12px">
       <div style="flex:1;min-width:0">
         <span class="pn ${sel.isOem?"oem":""}">${fullPN(sel.pn,sel.rev)}</span>
-        <div style="font-size:15px;font-weight:700;margin-top:6px;color:${sColor(sel.status)}">${sel.name}</div>
+        <div style="font-size:15px;font-weight:700;margin-top:6px;color:${sColor(sel.status)}">${esc(sel.name)}</div>
         ${sel.isOem?`<div style="font-size:11px;color:var(--blue-text);margin-top:2px">${sel.manufacturer||""}</div>`:""}
       </div>
       <button class="btn sm" id="detail-edit">${I.edit} Edit</button>
+      <button class="btn sm" id="detail-credits" title="View Credits">${I.credits}</button>
       <button class="btn sm danger" id="detail-del">${I.trash}</button>
     </div>
     <div class="detail-grid">
@@ -929,10 +958,6 @@ function buildDetailPanel(sel){
           <div class="df"><div class="df-l">Unit Mass</div><div class="df-v">${fmtM(parseFloat(sel.unitMass)||0)} / ${sel.unit||"ea"}</div></div>
           <div class="df"><div class="df-l">Stock</div><div class="df-v">${sel.stockQty||sel.pkgQty||1} ${sel.stockUnit||sel.unit||""} @ ${fmtC(sel.stockCost||sel.pkgCost||0)}</div></div>`}
       ${sel.assignee?`<div class="df" style="grid-column:1/-1"><div class="df-l">Assignee</div><div class="df-v">${sel.assignee}</div></div>`:""}
-      ${sel.designedBy?`<div class="df"><div class="df-l">Designed By</div><div class="df-v">${sel.designedBy}</div></div>`:""}
-      ${sel.reviewedBy?`<div class="df"><div class="df-l">Reviewed By</div><div class="df-v">${sel.reviewedBy}</div></div>`:""}
-      ${sel.manufacturedBy?`<div class="df"><div class="df-l">Manufactured By</div><div class="df-v">${sel.manufacturedBy}</div></div>`:""}
-      ${sel.inspectedBy?`<div class="df"><div class="df-l">Inspected By</div><div class="df-v">${sel.inspectedBy}</div></div>`:""}
       ${sel.drawingUrl?`<div class="df" style="grid-column:1/-1"><div class="df-l">Drawing</div><div class="df-v"><a href="${sel.drawingUrl}" target="_blank" style="color:var(--blue-text);font-size:12px">${I.link} ${sel.drawingUrl}</a></div></div>`:""}
     </div>
     ${sel.desc?`<div style="font-size:12px;color:var(--text2);padding:8px 0;border-top:1px solid var(--border)">${sel.desc}</div>`:""}
@@ -949,7 +974,7 @@ function buildDetailPanel(sel){
       </div>`;
       const depItem=p=>`<div class="cl-item" data-id="${p.id}">
         <span class="cl-pn ${p.isOem?"oem":""}">${fullPN(p.pn,p.rev)}</span>
-        <span class="cl-name" style="color:${sColor(p.status)}">${p.name}</span>
+        <span class="cl-name" style="color:${sColor(p.status)}">${esc(p.name)}</span>
         <span class="cl-arrow">${I.arrow}</span>
       </div>`;
       return`<div style="border-top:1px solid var(--border);margin-top:8px;padding-top:8px">
@@ -976,7 +1001,7 @@ function buildDetailPanel(sel){
       ${comps.map(c=>{const q=qtyInParent(c,sel.pn);return`<div class="cl-item" data-id="${c.id}" oncontextmenu="ctxDetailComp(event,'${c.id}','${sel.pn}')">
         <span class="cl-pn ${c.isOem?"oem":""}">${fullPN(c.pn,c.rev)}</span>
         ${q>1?`<span style="font-size:10px;color:var(--text3);font-family:var(--mono)">×${q}</span>`:""}
-        <span class="cl-name" style="color:${sColor(c.status)}">${c.name}</span>
+        <span class="cl-name" style="color:${sColor(c.status)}">${esc(c.name)}</span>
         <span class="cl-arrow">${I.arrow}</span>
       </div>`;}).join("")}
     </div>`:""}
@@ -1030,15 +1055,15 @@ function buildListView(){
     const nc=forceRed?"var(--red3)":obs?"var(--c-obsolete)":sColor(p.status);
     return`<tr data-id="${p.id}" data-idx="${i}" class="${S.listFocus===i?"focused":""} ${obs?"list-obs":""}" tabindex="0" oncontextmenu="ctxListRow(event,'${p.id}')">
       <td style="font-family:var(--mono);font-size:12px"><span class="pn">${fullPN(p.pn,p.rev)}</span>${p.serialized?`<span class="serial-dot-btn ${needsMore?"serial-dot-warn":""}" data-id="${p.id}" style="color:var(--purple);font-size:11px;cursor:pointer;margin-left:4px">●</span>`:""}</td>
-      <td style="font-weight:600;color:${nc};overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${p.name}">${p.name}</td>
+      <td style="font-weight:600;color:${nc};overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(p.name)}">${esc(p.name)}</td>
       <td>${cellStatus(p)}</td><td>${cellAssignee(p)}</td><td>${cellRev(p)}</td>
       <td style="font-family:var(--mono);font-size:12px">${fmtC(p.matCost||0)}</td>
       <td style="font-family:var(--mono);font-size:12px">${fmtM(parseFloat(p.mass)||0)}</td>
       <td style="font-size:12px;color:var(--text2)">${p.location||"—"}</td>
       <td style="font-family:var(--mono);font-size:12px;color:${p.serialized?"var(--purple-text)":"var(--text3)"}">${p.serialized?`<span class="serial-dot-btn" data-id="${p.id}" style="cursor:pointer;color:var(--purple-text)">${snCount}</span>`:"—"}</td>
-      <td style="font-size:11px;color:var(--text3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${[p.designedBy?"✏ "+p.designedBy:"",p.reviewedBy?"✓ "+p.reviewedBy:""].filter(Boolean).join(" · ")}</td>
       <td><div style="display:flex;gap:2px">
         <button class="btn icon btn-edit-row" data-id="${p.id}">${I.edit}</button>
+        <button class="btn icon btn-credits-row" data-id="${p.id}" title="View Credits">${I.credits}</button>
         <button class="btn icon danger btn-del-row" data-id="${p.id}">${I.trash}</button>
       </div></td>
     </tr>`;
@@ -1051,8 +1076,7 @@ function buildListView(){
       ${th("matCost","Cost","7%")}${th("mass","Mass (lb)","7%")}
       ${th("location","Location","9%")}
       <th style="width:9%;padding:7px 8px;font-size:10px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.08em">S# Count</th>
-      <th style="width:13%;padding:7px 8px;font-size:10px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.08em">Credits</th>
-      <th style="width:5%"></th>
+      <th style="width:96px;min-width:96px"></th>
     </tr></thead><tbody id="list-tbody">`;
 
   return`<div class="card">
@@ -1116,14 +1140,14 @@ function buildOemView(){
               ${hasProductUrl?`<a href="${p.productUrl}" target="_blank" style="font-family:var(--mono);font-size:12px;color:var(--blue-text);text-decoration:none;display:inline-flex;align-items:center;gap:3px">${p.pn} ${I.extlink}</a>`:`<span class="pn oem">${p.pn}</span>`}
               ${p.serialized?`<span class="serial-dot-btn" data-id="${p.id}" style="color:var(--purple);font-size:11px;cursor:pointer;margin-left:4px">●</span>`:""}
             </td>
-            <td style="font-weight:600;color:${obs?"var(--s-obsolete)":"var(--text)"}">${p.name}</td>
+            <td style="font-weight:600;color:${obs?"var(--s-obsolete)":"var(--text)"}">${esc(p.name)}</td>
             <td>${sBadge(p.status)}</td>
             <td style="font-size:12px;color:var(--text2)">${p.unit||"—"}</td>
             <td style="font-family:var(--mono);font-size:12px">${fmtC(p.unitCost||p.pkgCost||0)}</td>
             <td style="font-family:var(--mono);font-size:12px">${fmtM(parseFloat(p.unitMass)||0)}</td>
             <td style="font-size:12px;color:var(--text2)">${p.location||"—"}</td>
             <td style="font-family:var(--mono);font-size:12px;color:var(--text2)">${calcTotalQty(p.pn,S.parts)||"—"}</td>
-            <td style="font-size:12px;cursor:pointer;color:var(--blue-text)" class="oem-usedin-click" data-id="${p.id}" title="Click to see where used">${usedIn.length?usedIn.map(x=>x.name).join(", "):"—"}</td>
+            <td style="font-size:12px;cursor:pointer;color:var(--blue-text)" class="oem-usedin-click" data-id="${p.id}" title="Click to see where used">${usedIn.length?usedIn.map(x=>esc(x.name)).join(", "):"—"}</td>
             <td><div style="display:flex;gap:2px">
               <button class="btn icon btn-edit-oem-row" data-id="${p.id}">${I.edit}</button>
               <button class="btn icon danger btn-del-row" data-id="${p.id}">${I.trash}</button>
@@ -1197,7 +1221,7 @@ function buildMfgView(){
       }</td>
       <td style="position:sticky;right:0;background:var(--bg2);box-shadow:-3px 0 8px rgba(0,0,0,.4);z-index:2;padding:4px 6px;min-width:96px;width:96px"><div style="display:flex;gap:2px">
         <button class="btn icon btn-edit-mfg" data-mfg-id="${o.id}">${I.edit}</button>
-        <button class="btn icon btn-mfg-credits" data-mfg-id="${o.id}" title="View credits" style="font-size:11px">🏅</button>
+        <button class="btn icon btn-credits-mfg" data-mfg-id="${o.id}" title="View Credits">${I.credits}</button>
         <button class="btn icon danger btn-del-mfg" data-mfg-id="${o.id}">${I.trash}</button>
       </div></td>
     </tr>`;
@@ -1293,7 +1317,7 @@ function buildInvView(){
               <span class="pn">${fullPN(p.pn,p.rev)}</span>
               ${p.serialized?`<span style="color:var(--purple);font-size:10px;margin-left:3px">●</span>`:""}
             </td>
-            <td style="font-weight:600;color:${sColor(p.status)}">${p.name}</td>
+            <td style="font-weight:600;color:${sColor(p.status)}">${esc(p.name)}</td>
             <td>${sBadge(p.status)}</td>
             <td style="font-size:12px;color:var(--text2)">${p.location||"—"}</td>
             <td>${revBadge(p.rev)}</td>
@@ -1343,7 +1367,7 @@ ${cSel("ilk-"+p.id+"-"+si, [{value:"storage",label:"Storage"},{value:"in-assembl
           const tqty=calcTotalQty(p.pn,S.parts);
           return`<tr data-id="${p.id}">
             <td style="font-family:var(--mono);font-size:12px"><span class="pn oem">${p.pn}</span></td>
-            <td style="font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${p.name}">${p.name}</td>
+            <td style="font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(p.name)}">${esc(p.name)}</td>
             <td style="font-size:12px;color:var(--text2)">${p.manufacturer||"—"}</td>
             <td style="font-size:12px;color:var(--text2)">${p.location||"—"}</td>
             <td>${sBadge(p.status)}</td>
@@ -1476,7 +1500,7 @@ function bindPage(){
       name:(row.querySelector(".pc-name")?.value||"").trim(),
     })).filter(pc=>pc.code).sort((a,b)=>parseInt(a.code||99)-parseInt(b.code||99));
     saveLocal(S.parts,S.mfgOrders);
-    if(S.connected&&getFbCfg())upsertAll(S.parts,S.mfgOrders).catch(e=>console.warn("[FB]",e));
+    if(getFbCfg())upsertAll(S.parts,S.mfgOrders).catch(e=>console.warn("[FB]",e));
     _settingsDirty=false;const btn=document.getElementById("settings-save");if(btn){btn.textContent="Saved!";setTimeout(()=>{if(btn){btn.textContent="Save Settings";render();}},1200);}
   });
   document.getElementById("nav-new-br")?.addEventListener("click",()=>openEdit(null));
@@ -1544,10 +1568,12 @@ function bindPage(){
   // list rows
   document.querySelectorAll("#list-tbody tr").forEach(row=>{row.addEventListener("dblclick",e=>{if(e.target.closest(".inline-sel,.inline-inp,.inline-click"))return;openEdit(row.dataset.id);});});
   document.querySelectorAll(".btn-edit-row").forEach(b=>{b.addEventListener("click",e=>{e.stopPropagation();openEdit(b.dataset.id);});});
+  document.querySelectorAll(".btn-credits-row").forEach(b=>{b.addEventListener("click",e=>{e.stopPropagation();openCreditsDialog("part",b.dataset.id);});});
   document.querySelectorAll(".btn-edit-oem-row").forEach(b=>{b.addEventListener("click",e=>{e.stopPropagation();openEditOem(b.dataset.id);});});
   document.querySelectorAll(".oem-usedin-click").forEach(el=>{el.addEventListener("click",e=>{e.stopPropagation();openOemUsedInDialog(el.dataset.id);});});
   document.querySelectorAll(".btn-del-row").forEach(b=>{b.addEventListener("click",e=>{e.stopPropagation();promptDelete(b.dataset.id);});});
   document.querySelectorAll(".btn-edit-mfg").forEach(b=>{b.addEventListener("click",e=>{e.stopPropagation();openMfgForm(b.dataset.mfgId);});});
+  document.querySelectorAll(".btn-credits-mfg").forEach(b=>{b.addEventListener("click",e=>{e.stopPropagation();openCreditsDialog("mfg",b.dataset.mfgId);});});
   document.querySelectorAll(".btn-del-mfg").forEach(b=>{b.addEventListener("click",e=>{e.stopPropagation();promptDeleteMfg(b.dataset.mfgId);});});
   // inline mfg status click
   // mfg-status-click removed: handled by cSel
@@ -1555,9 +1581,6 @@ function bindPage(){
   // inline mfg assignee click
   // mfg-assignee-click removed: handled by cSel
   // inline mfg generic field click (stockNos etc)
-  document.querySelectorAll(".btn-mfg-credits").forEach(btn=>{
-    btn.addEventListener("click",()=>openMfgCreditsDialog(btn.dataset.mfgId));
-  });
   document.querySelectorAll(".mfg-bom-click").forEach(el=>{
     el.addEventListener("click",e=>{e.stopPropagation();openMfgBomDialog(el.dataset.mfgId);});
   });
@@ -1570,7 +1593,7 @@ function bindPage(){
       const val=prompt("Edit "+field+":", o[field]||"");
       if(val===null)return;
       o[field]=val;o.updatedAt=Date.now();saveLocal(S.parts,S.mfgOrders);
-    if(S.connected&&getFbCfg())fbUpsertOrder(o);
+    if(getFbCfg())fbUpsertOrder(o);
     render();
     });
   });
@@ -1613,6 +1636,7 @@ function bindPage(){
     saveExpanded();render();
   });
   document.getElementById("detail-edit")?.addEventListener("click",()=>{const p=S.selected;if(p)p.isOem?openEditOem(p.id):openEdit(p.id);});
+  document.getElementById("detail-credits")?.addEventListener("click",()=>{if(S.selected)openCreditsDialog("part",S.selected.id);});
   document.getElementById("detail-del")?.addEventListener("click",()=>promptDelete(S.selected?.id));
   document.getElementById("detail-serials")?.addEventListener("click",e=>openSerialModal(e.currentTarget.dataset.id||S.selected?.id));
   document.getElementById("detail-add-comp")?.addEventListener("click",()=>openAddComponentDialog(S.selected?.pn));
@@ -1639,13 +1663,13 @@ function bindPage(){
 window.ctxListRow=function(e,id){
   e.preventDefault();
   const p=S.parts.find(x=>x.id===id);
-  const items=[{label:"Edit Part",icon:I.edit,fn:()=>openEdit(id)}];
+  const items=[{label:"Edit Part",icon:I.edit,fn:()=>openEdit(id)},{label:"View Credits",icon:I.credits,fn:()=>openCreditsDialog("part",id)}];
   if(p&&p.serialized)items.push({label:"Manage Serials",icon:I.serial,fn:()=>openSerialModal(id)});
   items.push({divider:true},{label:"Delete",icon:I.trash,danger:true,fn:()=>promptDelete(id)});
   openCtxMenu(e,items);
 };
 window.ctxOemRow=function(e,id){e.preventDefault();openCtxMenu(e,[{label:"Edit OEM Part",icon:I.edit,fn:()=>openEditOem(id)},{divider:true},{label:"Delete",icon:I.trash,danger:true,fn:()=>promptDelete(id)}]);};
-window.ctxMfgRow=function(e,id){e.preventDefault();openCtxMenu(e,[{label:"Edit Order",icon:I.edit,fn:()=>openMfgForm(id)},{divider:true},{label:"Delete",icon:I.trash,danger:true,fn:()=>promptDeleteMfg(id)}]);};
+window.ctxMfgRow=function(e,id){e.preventDefault();openCtxMenu(e,[{label:"Edit Order",icon:I.edit,fn:()=>openMfgForm(id)},{label:"View Credits",icon:I.credits,fn:()=>openCreditsDialog("mfg",id)},{divider:true},{label:"Delete",icon:I.trash,danger:true,fn:()=>promptDeleteMfg(id)}]);};
 window.ctxDetailComp=function(e,compId,parentPn){
   e.preventDefault();e.stopPropagation();
   const comp=S.parts.find(x=>x.id===compId);if(!comp)return;
@@ -1659,6 +1683,7 @@ function openCtxTree(e,id){
   const inParent=parentPn&&(p.whereUsed||[]).some(w=>w.parentPn===parentPn);
   openCtxMenu(e,[
     {label:"Edit Part",icon:I.edit,fn:()=>p.isOem?openEditOem(id):openEdit(id)},
+    ...(!p.isOem?[{label:"View Credits",icon:I.credits,fn:()=>openCreditsDialog("part",id)}]:[]),
     ...(S.isolatedTreeRoot===p.pn?[{label:"Unisolate",icon:I.x,fn:()=>{S.isolatedTreeRoot="";render();}}]:[{label:"Isolate",icon:"◎",fn:()=>{S.isolatedTreeRoot=p.pn;S.expanded[p.id]=true;saveExpanded();render();}}]),
     ...(!p.isOem?[
       {divider:true},
@@ -1868,7 +1893,7 @@ function openMfgForm(mfgId){
     order.updatedAt=Date.now();
     const idx=S.mfgOrders.findIndex(x=>x.id===order.id);if(idx>=0)S.mfgOrders[idx]=order;else S.mfgOrders.push(order);
     saveLocal(S.parts,S.mfgOrders);
-    if(S.connected&&getFbCfg())fbUpsertOrder(order);
+    if(getFbCfg())fbUpsertOrder(order);
     closeDlg("mfg-form");render();return true;
   };
   const tryClose=()=>{if(isDirty())showUnsaved(doSave,()=>closeDlg("mfg-form"));else closeDlg("mfg-form");};
@@ -1879,7 +1904,7 @@ function promptDeleteMfg(id){
   const o=S.mfgOrders.find(x=>x.id===id);if(!o)return;
   const d=openDlg("confirm-mfg","min(400px,96vw)",`<div style="padding:26px"><div style="display:flex;gap:10px;align-items:flex-start;margin-bottom:12px">${I.warn}<div style="font-size:15px;font-weight:700;color:var(--text)">Delete order for "${o.partName}"?</div></div><div style="font-size:13px;color:var(--text2);margin-bottom:20px">This manufacturing order will be permanently removed.</div><div style="display:flex;justify-content:flex-end;gap:8px"><button id="dm-cancel" class="btn">Cancel</button><button id="dm-ok" class="btn danger">Delete</button></div></div>`);
   d.querySelector("#dm-cancel").addEventListener("click",()=>closeDlg("confirm-mfg"));
-  d.querySelector("#dm-ok").addEventListener("click",()=>{S.mfgOrders=S.mfgOrders.filter(x=>x.id!==id);saveLocal(S.parts,S.mfgOrders);if(S.connected&&getFbCfg())fbDeleteOrder(id);closeDlg("confirm-mfg");render();});
+  d.querySelector("#dm-ok").addEventListener("click",()=>{S.mfgOrders=S.mfgOrders.filter(x=>x.id!==id);saveLocal(S.parts,S.mfgOrders);if(getFbCfg())fbDeleteOrder(id);closeDlg("confirm-mfg");render();});
 }
 // ══════════════════════════════════════════════════
 //  ADD COMPONENT / EDIT QTY / SN QUICK ASSIGN
@@ -1889,7 +1914,7 @@ function openAddComponentDialog(parentPn,typeFilter){
   const alreadyUsed=S.parts.filter(p=>(p.whereUsed||[]).some(w=>w.parentPn===parentPn)).map(p=>p.id);
   const pool=S.parts.filter(p=>p.id!==parent.id&&!alreadyUsed.includes(p.id)&&(typeFilter==="br"?!p.isOem:typeFilter==="oem"?p.isOem:true));
   const d=openDlg("add-comp","min(420px,96vw)",`
-  <div class="dh"><div class="dh-title">${I.plus} Add Component to ${parent.name}</div><button id="ac-x" class="btn icon">${I.x}</button></div>
+  <div class="dh"><div class="dh-title">${I.plus} Add Component to ${esc(parent.name)}</div><button id="ac-x" class="btn icon">${I.x}</button></div>
   <div class="db">
     <div class="f"><label>Part</label>${partSearchHTML("ac-part", pool, "", "Search by PN or name…")}</div>
     <div class="f"><label>Quantity</label><input id="ac-qty" type="number" min="1" value="1" autocomplete="off"></div>
@@ -1975,7 +2000,7 @@ function bindDep(con,pool){
   con.querySelector(".dep-add")?.addEventListener("click",()=>{const d=collectDeps(con);d.push("");con.innerHTML=buildDepRows(d,pool);bindDep(con,pool);setTimeout(()=>{const ins=con.querySelectorAll(".dep-pn-input");if(ins.length)ins[ins.length-1].focus();},50);});
   con.querySelectorAll(".dep-pn-input").forEach(inp=>{
     const dd=inp.nextElementSibling;
-    function show(q){const lq=(q||"").toLowerCase();const m=!q?pool.slice(0,40):pool.filter(p=>(p.pn||"").toLowerCase().includes(lq)||(p.name||"").toLowerCase().includes(lq)).slice(0,40);if(!m.length){dd.style.display="none";return;}dd.innerHTML=m.map(p=>`<div class="dep-opt" data-pn="${p.pn}" style="padding:7px 10px;cursor:pointer;font-size:13px;border-bottom:1px solid var(--border)"><span style="font-family:var(--mono);color:var(--text)">${fullPN(p.pn,p.rev)}</span><span style="color:var(--text2);margin-left:8px">${p.name}</span></div>`).join("");dd.style.display="block";dd.querySelectorAll(".dep-opt").forEach(o=>{o.addEventListener("mousedown",e=>{e.preventDefault();const p=pool.find(x=>x.pn===o.dataset.pn);inp.value=p?`${fullPN(p.pn,p.rev)} — ${p.name}`:o.dataset.pn;inp.dataset.pn=o.dataset.pn;dd.style.display="none";});});}
+    function show(q){const lq=(q||"").toLowerCase();const m=!q?pool.slice(0,40):pool.filter(p=>(p.pn||"").toLowerCase().includes(lq)||(p.name||"").toLowerCase().includes(lq)).slice(0,40);if(!m.length){dd.style.display="none";return;}dd.innerHTML=m.map(p=>`<div class="dep-opt" data-pn="${p.pn}" style="padding:7px 10px;cursor:pointer;font-size:13px;border-bottom:1px solid var(--border)"><span style="font-family:var(--mono);color:var(--text)">${fullPN(p.pn,p.rev)}</span><span style="color:var(--text2);margin-left:8px">${esc(p.name)}</span></div>`).join("");dd.style.display="block";dd.querySelectorAll(".dep-opt").forEach(o=>{o.addEventListener("mousedown",e=>{e.preventDefault();const p=pool.find(x=>x.pn===o.dataset.pn);inp.value=p?`${fullPN(p.pn,p.rev)} — ${p.name}`:o.dataset.pn;inp.dataset.pn=o.dataset.pn;dd.style.display="none";});});}
     inp.addEventListener("input",()=>show(inp.value));inp.addEventListener("focus",()=>show(inp.value));inp.addEventListener("blur",()=>setTimeout(()=>{dd.style.display="none";},150));
   });
 }
@@ -1988,7 +2013,7 @@ function bindWu(con,pool,onUpdate){
       const lq=(q||"").toLowerCase();
       const matches=!q?pool.slice(0,40):pool.filter(p=>(p.pn||"").toLowerCase().includes(lq)||(p.name||"").toLowerCase().includes(lq)).slice(0,40);
       if(!matches.length){dropdown.style.display="none";return;}
-      dropdown.innerHTML=matches.map(p=>`<div class="wu-opt" data-pn="${p.pn}" style="padding:7px 10px;cursor:pointer;font-size:13px;border-bottom:1px solid var(--border)"><span style="font-family:var(--mono);color:var(--text)">${fullPN(p.pn,p.rev)}</span><span style="color:var(--text2);margin-left:8px">${p.name}</span></div>`).join("");
+      dropdown.innerHTML=matches.map(p=>`<div class="wu-opt" data-pn="${p.pn}" style="padding:7px 10px;cursor:pointer;font-size:13px;border-bottom:1px solid var(--border)"><span style="font-family:var(--mono);color:var(--text)">${fullPN(p.pn,p.rev)}</span><span style="color:var(--text2);margin-left:8px">${esc(p.name)}</span></div>`).join("");
       dropdown.style.display="block";
       dropdown.querySelectorAll(".wu-opt").forEach(opt=>{
         opt.addEventListener("mousedown",e=>{
@@ -2049,7 +2074,7 @@ function openEdit(id,preParentPn){
       <div class="f"><label>Status</label>${cSelHTML("ef-status", BR_STATUS_OPTS(), p.status||"In Design", "_noop")}</div>
       <div class="f"><label>Assignee</label>${cSelHTML("ef-assignee", MEMBER_OPTS(p.assignee), p.assignee||"", "_noop", {placeholder:"— Unassigned —"})}</div>
     </div>
-    <div class="f"><label>Name</label><input id="ef-name" type="text" autocomplete="off" value="${p.name||""}" placeholder="e.g. Gearbox Upper Casing"></div>
+    <div class="f"><label>Name</label><input id="ef-name" type="text" autocomplete="off" value="${esc(p.name)}" placeholder="e.g. Gearbox Upper Casing"></div>
     <div class="f"><label>Where Used</label><div id="wu-con">${buildWuRows((p.whereUsed&&p.whereUsed.length>0)?p.whereUsed:[{parentPn:"",qty:1}],pool)}</div></div>
     <div class="f"><label>Dependencies <span style="font-weight:400;font-size:10px;color:var(--text3)">(parts this part depends on)</span></label><div id="ef-dep-con">${buildDepRows(p.dependencies||[],allPool)}</div></div>
     <div class="f-row">
@@ -2068,8 +2093,6 @@ function openEdit(id,preParentPn){
     <hr class="sec-div">
     <div class="sec-lbl">Design &amp; Manufacturing Attribution</div>
     <div class="f-row">
-      <div class="f"><label>Designed By</label>${cSelHTML("ef-designedby", MEMBER_OPTS(p.designedBy), p.designedBy||"", "_noop", {placeholder:"— None —"})}</div>
-      <div class="f"><label>Reviewed By</label>${cSelHTML("ef-reviewedby", MEMBER_OPTS(p.reviewedBy), p.reviewedBy||"", "_noop", {placeholder:"— None —"})}</div>
     </div>
     ${!p.serialized?`<div class="f-row">
     </div>`:``}
@@ -2105,7 +2128,7 @@ function openEdit(id,preParentPn){
   }
   d.querySelector("#ef-use-sug")?.addEventListener("click",()=>{const sp=d.querySelector("#sug-pn");if(sp&&pnInput)pnInput.value=sp.textContent;});
 
-  const snap=()=>JSON.stringify({pn:d.querySelector("#ef-pn")?.value,rev:cSelVal("ef-rev"),name:d.querySelector("#ef-name")?.value,status:cSelVal("ef-status"),assignee:cSelVal("ef-assignee"),cost:d.querySelector("#ef-cost")?.value,mass:d.querySelector("#ef-mass")?.value,mat:d.querySelector("#ef-mat")?.value,loc:d.querySelector("#ef-loc")?.value,draw:d.querySelector("#ef-draw")?.value,desc:d.querySelector("#ef-desc")?.value,serial:cSelVal("ef-serial"),duedate:d.querySelector("#ef-duedate")?.value,dby:cSelVal("ef-designedby"),rby:cSelVal("ef-reviewedby"),mby:cSelVal("ef-mfgby"),iby:cSelVal("ef-inspby"),wu:collectWu(wuCon)});
+  const snap=()=>JSON.stringify({pn:d.querySelector("#ef-pn")?.value,rev:cSelVal("ef-rev"),name:d.querySelector("#ef-name")?.value,status:cSelVal("ef-status"),assignee:cSelVal("ef-assignee"),cost:d.querySelector("#ef-cost")?.value,mass:d.querySelector("#ef-mass")?.value,mat:d.querySelector("#ef-mat")?.value,loc:d.querySelector("#ef-loc")?.value,draw:d.querySelector("#ef-draw")?.value,desc:d.querySelector("#ef-desc")?.value,serial:cSelVal("ef-serial"),duedate:d.querySelector("#ef-duedate")?.value,wu:collectWu(wuCon)});
   const orig=snap(),isDirty=()=>snap()!==orig;
   const doSave=()=>{
     const nv=(d.querySelector("#ef-name")?.value||"").trim();if(!nv){d.querySelector("#ef-name").style.outline="2px solid #a32d2d";d.querySelector("#ef-name").focus();return false;}
@@ -2125,7 +2148,7 @@ Update the part number or add this project code in Settings.`);
         return false;
       }
     }
-    const part={...p,pn:rawPn,rev:cSelVal("ef-rev")||"-",name:nv,status:cSelVal("ef-status")||"In Design",assignee:cSelVal("ef-assignee")||"",whereUsed:collectWu(wuCon),dependencies:collectDeps(d.querySelector("#ef-dep-con")),matCost:kids?r.cost:(parseFloat(d.querySelector("#ef-cost")?.value)||0),mass:kids?r.mass:(parseFloat(d.querySelector("#ef-mass")?.value)||0),material:kids?"Assembly":(d.querySelector("#ef-mat")?.value||""),location:d.querySelector("#ef-loc")?.value||"",drawingUrl:d.querySelector("#ef-draw")?.value||"",desc:d.querySelector("#ef-desc")?.value||"",serialized:cSelVal("ef-serial")==="1",designDueDate:d.querySelector("#ef-duedate")?.value||"",designedBy:cSelVal("ef-designedby")||p.designedBy||"",reviewedBy:cSelVal("ef-reviewedby")||p.reviewedBy||"",manufacturedBy:cSelVal("ef-mfgby")||p.manufacturedBy||"",inspectedBy:cSelVal("ef-inspby")||p.inspectedBy||"",isOem:false,id:p.id||("p"+Date.now())};
+    const part={...p,pn:rawPn,rev:cSelVal("ef-rev")||"-",name:nv,status:cSelVal("ef-status")||"In Design",assignee:cSelVal("ef-assignee")||"",whereUsed:collectWu(wuCon),dependencies:collectDeps(d.querySelector("#ef-dep-con")),matCost:kids?r.cost:(parseFloat(d.querySelector("#ef-cost")?.value)||0),mass:kids?r.mass:(parseFloat(d.querySelector("#ef-mass")?.value)||0),material:kids?"Assembly":(d.querySelector("#ef-mat")?.value||""),location:d.querySelector("#ef-loc")?.value||"",drawingUrl:d.querySelector("#ef-draw")?.value||"",desc:d.querySelector("#ef-desc")?.value||"",serialized:cSelVal("ef-serial")==="1",designDueDate:d.querySelector("#ef-duedate")?.value||"",isOem:false,id:p.id||("p"+Date.now())};
     if(part.assignee&&!S.assigneeSuggestions.includes(part.assignee))S.assigneeSuggestions.push(part.assignee);
     persistPart(part);closeDlg("br");return true;
   };
@@ -2150,7 +2173,7 @@ function openEditOem(id,preParentPn){
       <div class="f"><label>OEM Part Number</label><input id="of-pn" type="text" autocomplete="off" value="${p.pn||""}" placeholder="e.g. MM-GPS-7"></div>
       <div class="f"><label>Status</label>${cSelHTML("of-status", OEM_STATUS_OPTS(), p.status||"Current", "_noop")}</div>
     </div>
-    <div class="f"><label>Part Name</label><input id="of-name" type="text" autocomplete="off" value="${p.name||""}" placeholder="e.g. Gear Position Sensor"></div>
+    <div class="f"><label>Part Name</label><input id="of-name" type="text" autocomplete="off" value="${esc(p.name)}" placeholder="e.g. Gear Position Sensor"></div>
     <div class="f"><label>Manufacturer</label><input id="of-mfr" type="text" autocomplete="off" value="${p.manufacturer||""}" placeholder="e.g. Magneti Marelli"></div>
     <div class="f"><label>Where Used</label><div id="owu-con">${buildWuRows(p.whereUsed||[],pool)}</div></div>
     <div style="font-size:11px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.08em;margin:14px 0 8px;padding-bottom:6px;border-bottom:1px solid var(--border)">Design / BOM Values</div>
@@ -2209,8 +2232,6 @@ function openSerialModal(id){
         <td style="padding:4px 5px;min-width:130px"><input class="sr-sn" type="text" autocomplete="off" value="${s.sn}" style="${inStyle};font-family:var(--mono);color:var(--purple-text)"></td>
         <td style="padding:4px 5px;min-width:90px"><input class="sr-cond" type="text" autocomplete="off" value="${s.condition||""}" placeholder="e.g. New" style="${inStyle}"></td>
         <td style="padding:4px 5px;min-width:110px"><input class="sr-date" type="date" value="${s.dateMfg||""}" style="${inStyle}"></td>
-        <td style="padding:4px 5px;min-width:110px"><select class="sr-mfgby" style="${selStyle};-webkit-appearance:none;appearance:none"><option value="">— None —</option>${memberOptions(s.manufacturedBy||"")}</select></td>
-        <td style="padding:4px 5px;min-width:110px"><select class="sr-inspby" style="${selStyle};-webkit-appearance:none;appearance:none"><option value="">— None —</option>${memberOptions(s.inspectedBy||"")}</select></td>
         <td style="padding:4px 5px;min-width:120px"><input class="sr-notes" type="text" autocomplete="off" value="${s.notes||""}" placeholder="Notes" style="${inStyle}"></td>
         <td style="padding:4px 5px;width:32px"><button class="btn icon danger sr-del" data-idx="${i}" type="button" style="padding:3px">${I.trash}</button></td>
       </tr>`;
@@ -2222,8 +2243,6 @@ function openSerialModal(id){
       sn:row.querySelector(".sr-sn")?.value.trim()||"",
       condition:row.querySelector(".sr-cond")?.value||"",
       dateMfg:row.querySelector(".sr-date")?.value||"",
-      manufacturedBy:row.querySelector(".sr-mfgby")?.value||"",
-      inspectedBy:row.querySelector(".sr-inspby")?.value||"",
       notes:row.querySelector(".sr-notes")?.value||"",
     })).filter(s=>s.sn);
   }
@@ -2234,14 +2253,14 @@ function openSerialModal(id){
 
   const d=openDlg("serials","min(1000px,96vw)",`
   <div class="dh">
-    <span class="dh-title" style="display:flex;align-items:center;gap:7px">${I.serial} Serials — ${p0.name}</span>
+    <span class="dh-title" style="display:flex;align-items:center;gap:7px">${I.serial} Serials — ${esc(p0.name)}</span>
     <span style="font-size:12px;color:var(--text3)">${(p0.serials||[]).length} registered</span>
     <button id="sr-x" class="btn icon" style="margin-left:auto">${I.x}</button>
   </div>
   <div class="db" style="overflow-x:auto"><div style="min-width:600px">
     <table style="width:100%;border-collapse:collapse">
       <thead><tr style="border-bottom:1px solid var(--border)">
-        ${["Serial #","Condition","Mfg Date","Manufactured By","Inspected By","Notes",""].map((h,i)=>`<th style="text-align:left;padding:7px ${i===6?4:6}px;font-size:10px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.08em;${i===6?"width:32px":""}">${h}</th>`).join("")}
+        ${["Serial #","Condition","Mfg Date","Notes",""].map((h,i)=>`<th style="text-align:left;padding:7px ${i===4?4:6}px;font-size:10px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.08em;${i===4?"width:32px":""}">${h}</th>`).join("")}
       </tr></thead>
       <tbody id="sr-tbody">${buildTable(p0.serials||[])}</tbody>
     </table>
@@ -2254,7 +2273,7 @@ function openSerialModal(id){
     const p2=getPart();if(!p2)return;
     const cur=collectSerials(tbody);
     const curSns=cur.map(s=>s.sn);
-    cur.push({sn:nextSerial(S.parts,p2.pn,p2.rev,curSns),locationKind:"storage",condition:"New",dateMfg:"",manufacturedBy:"",inspectedBy:"",notes:""});
+    cur.push({sn:nextSerial(S.parts,p2.pn,p2.rev,curSns),locationKind:"storage",condition:"New",dateMfg:"",notes:""});
     tbody.innerHTML=buildTable(cur);bindTbl(tbody);
   });
   d.querySelector("#sr-save").addEventListener("click",()=>{
@@ -2277,10 +2296,9 @@ function showUnsaved(onSave,onDiscard){
 function promptDelete(id){
   const p=S.parts.find(x=>x.id===id);if(!p)return;
   const cc=S.parts.filter(x=>(x.whereUsed||[]).some(w=>w.parentPn===p.pn)).length;
-  const d=openDlg("confirm","min(440px,96vw)",`<div style="padding:26px"><div style="display:flex;gap:10px;align-items:flex-start;margin-bottom:12px">${I.warn}<div style="font-size:15px;font-weight:700;color:var(--text)">Delete "${p.name}"?</div></div><div style="font-size:13px;color:var(--text2);line-height:1.6;margin-bottom:20px">${cc>0?`Has <strong>${cc} component${cc!==1?"s":""}</strong>. They will remain as orphans.`:"Will be permanently removed."}</div><div style="display:flex;justify-content:flex-end;gap:8px"><button id="dc-cancel" class="btn">Cancel</button><button id="dc-ok" class="btn danger">Delete</button></div></div>`);
+  const d=openDlg("confirm","min(440px,96vw)",`<div style="padding:26px"><div style="display:flex;gap:10px;align-items:flex-start;margin-bottom:12px">${I.warn}<div style="font-size:15px;font-weight:700;color:var(--text)">Delete "${esc(p.name)}"?</div></div><div style="font-size:13px;color:var(--text2);line-height:1.6;margin-bottom:20px">${cc>0?`Has <strong>${cc} component${cc!==1?"s":""}</strong>. They will remain as orphans.`:"Will be permanently removed."}</div><div style="display:flex;justify-content:flex-end;gap:8px"><button id="dc-cancel" class="btn">Cancel</button><button id="dc-ok" class="btn danger">Delete</button></div></div>`);
   d.querySelector("#dc-cancel").addEventListener("click",()=>closeDlg("confirm"));
-  d.querySelector("#dc-ok").addEventListener("click",()=>{closeDlg("confirm");if(S.connected&&p._spId)spDel(p._spId).catch(e=>{S.error="Delete: "+e.message;});S.parts=S.parts.filter(x=>x.id!==id);if(S.selected?.id===id)S.selected=null;saveLocal(S.parts,S.mfgOrders);if(S.connected&&getFbCfg())fbDeletePart(id);
-    if(S.connected&&getFbCfg())upsertAll(S.parts,S.mfgOrders).catch(()=>{});
+  d.querySelector("#dc-ok").addEventListener("click",()=>{closeDlg("confirm");S.parts=S.parts.filter(x=>x.id!==id);if(S.selected?.id===id)S.selected=null;saveLocal(S.parts,S.mfgOrders);if(getFbCfg())fbDeletePart(id);
     render();});
 }
 function removeFromAssembly(partId,parentPn){
@@ -2292,7 +2310,7 @@ function openPieChart(id,metric){
   const p=S.parts.find(x=>x.id===id);if(!p||!hasKids(p.pn,S.parts))return;
   const r=rollup(p.id,S.parts),total=metric==="cost"?r.cost:r.mass;
   const kids=S.parts.filter(x=>(x.whereUsed||[]).some(w=>w.parentPn===p.pn));
-  const d=openDlg("chart","min(520px,96vw)",`<div class="dh"><div class="dh-title">${p.name} — ${metric==="cost"?"Cost":"Mass"} Breakdown</div><span style="font-size:12px;color:var(--text2);margin-left:4px">Total: ${metric==="cost"?fmtC(total):fmtM(total)}</span><button id="ch-x" class="btn icon" style="margin-left:auto">${I.x}</button></div><div class="db" style="padding:20px"><canvas id="pie-canvas" width="456" height="320"></canvas></div>`);
+  const d=openDlg("chart","min(520px,96vw)",`<div class="dh"><div class="dh-title">${esc(p.name)} — ${metric==="cost"?"Cost":"Mass"} Breakdown</div><span style="font-size:12px;color:var(--text2);margin-left:4px">Total: ${metric==="cost"?fmtC(total):fmtM(total)}</span><button id="ch-x" class="btn icon" style="margin-left:auto">${I.x}</button></div><div class="db" style="padding:20px"><canvas id="pie-canvas" width="456" height="320"></canvas></div>`);
   d.querySelector("#ch-x").addEventListener("click",()=>closeDlg("chart"));
   setTimeout(()=>{
     if(chartInst){chartInst.destroy();chartInst=null;}
@@ -2308,90 +2326,34 @@ function getDirectSerializedChildren(partPn,parts){
   return parts.filter(p=>p.serialized&&(p.whereUsed||[]).some(w=>w.parentPn===partPn));
 }
 
-// Prompt for assignee after status change (follow-up pop-up)
-// Check attribution conflict and optionally overwrite
-function confirmAttrib(partId, field, newVal, label, onConfirm){
-  const p=S.parts.find(x=>x.id===partId);if(!p)return;
-  const existing=p[field];
-  if(!existing||existing===newVal){
-    // No conflict — just set it
-    p[field]=newVal;persistPart(p);if(onConfirm)onConfirm();return;
-  }
-  // Conflict — ask user
-  const d=openDlg("attrib-confirm","min(400px,96vw)",`
-  <div style="padding:22px">
-    <div style="font-size:15px;font-weight:700;margin-bottom:10px;color:var(--text)">Overwrite ${label}?</div>
-    <div style="font-size:13px;color:var(--text2);margin-bottom:18px">
-      <strong>${label}</strong> is already set to <strong>${existing}</strong>.<br>
-      Overwrite with <strong>${newVal}</strong>?
-    </div>
-    <div style="display:flex;justify-content:flex-end;gap:8px">
-      <button id="ac-keep" class="btn">Keep "${existing}"</button>
-      <button id="ac-overwrite" class="btn primary">Set "${newVal}"</button>
-    </div>
+// Prompt to bump revision letter when leaving Needs Revision
+function promptRevBump(partId, onDone){
+  const p=S.parts.find(x=>x.id===partId);if(!p){if(onDone)onDone();return;}
+  const cur=p.rev||"-";
+  const suggested=nextRev(cur);
+  const d=openDlg("rev-bump","min(380px,96vw)",`
+  <div class="dh"><div class="dh-title">Update the Revision letter? (Was ${cur})</div></div>
+  <div class="df">
+    <button id="rb-no" class="btn">No</button>
+    <button id="rb-yes" class="btn primary">Yes</button>
   </div>`);
-  d.querySelector("#ac-keep").addEventListener("click",()=>{closeDlg("attrib-confirm");if(onConfirm)onConfirm();});
-  d.querySelector("#ac-overwrite").addEventListener("click",()=>{
-    const p2=S.parts.find(x=>x.id===partId);if(p2){p2[field]=newVal;persistPart(p2);}
-    closeDlg("attrib-confirm");if(onConfirm)onConfirm();
+  const finish=()=>{closeDlg("rev-bump");if(onDone)onDone();};
+  d.querySelector("#rb-no").addEventListener("click",finish);
+  d.querySelector("#rb-yes").addEventListener("click",()=>{
+    const p2=S.parts.find(x=>x.id===partId);
+    if(p2){p2.rev=suggested;persistPart(p2);}
+    finish();
   });
 }
 
-// Apply design attributions when status changes
-function applyDesignAttribs(p, prevStatus, newStatus){
-  const assignee=p.assignee||"";if(!assignee)return;
+// Prompt for assignee after status change (follow-up pop-up)
+// Check attribution conflict and optionally overwrite
+// (confirmAttrib removed)
 
-  if(newStatus==="Needs Review"&&prevStatus==="In Design"){
-    // Going to Needs Review from In Design: set Designed By
-    confirmAttrib(p.id,"designedBy",assignee,"Designed By",null);
-  } else if(newStatus==="Design Approved"){
-    if(prevStatus==="Needs Review"||prevStatus==="Needs Revision"){
-      // Coming from Needs Review or Needs Revision: set ONLY Reviewed By
-      confirmAttrib(p.id,"reviewedBy",assignee,"Reviewed By",null);
-    } else if(prevStatus==="In Design"){
-      // Skipped review: set both
-      confirmAttrib(p.id,"designedBy",assignee,"Designed By",()=>{
-        confirmAttrib(p.id,"reviewedBy",assignee,"Reviewed By",null);
-      });
-    }
-  }
-}
+// (design attribution system removed)
 
-// Apply manufacturing attributions on status transitions
-function applyMfgAttribs(o, prevStatus, newStatus, prevAssignee){
-  // Store credits on the ORDER (real object, mutations persist)
-  // prevAssignee = assignee at time of status change (captured before any update)
-  const assignee=prevAssignee||o.assignee||"";if(!assignee)return;
-
-  // Store _manufacturedBy on order when leaving In Progress
-  if(prevStatus==="In Progress"&&newStatus!=="Complete"){
-    o._manufacturedBy=assignee;
-    // Ensure the real order in S.mfgOrders is updated
-    const _ro=S.mfgOrders.find(x=>x.id===o.id);if(_ro)_ro._manufacturedBy=assignee;
-    saveLocal(S.parts,S.mfgOrders);
-    return;
-  }
-
-  const mfgByVal=(prevStatus==="Needs Inspection")?(o._manufacturedBy||assignee):assignee;
-
-  const _ro=S.mfgOrders.find(x=>x.id===o.id);
-  if(prevStatus==="In Progress"&&newStatus==="Complete"){
-    if(_ro){_ro.manufacturedBy=mfgByVal;_ro.inspectedBy=assignee;}
-    o.manufacturedBy=mfgByVal;o.inspectedBy=assignee;
-    saveLocal(S.parts,S.mfgOrders);
-    if(S.connected&&getFbCfg())fbUpsertOrder(_ro||o);
-  } else if(prevStatus==="In Progress"){
-    if(_ro){_ro.manufacturedBy=mfgByVal;}
-    o.manufacturedBy=mfgByVal;
-    saveLocal(S.parts,S.mfgOrders);
-    if(S.connected&&getFbCfg())fbUpsertOrder(_ro||o);
-  } else if(prevStatus==="Needs Inspection"){
-    if(_ro){_ro.manufacturedBy=mfgByVal;_ro.inspectedBy=assignee;}
-    o.manufacturedBy=mfgByVal;o.inspectedBy=assignee;
-    saveLocal(S.parts,S.mfgOrders);
-    if(S.connected&&getFbCfg())fbUpsertOrder(_ro||o);
-  }
-}
+// (mfg attribution system removed)
+function applyMfgAttribs(){}
 
 // Apply an attribution field to specific serials by S# list
 
@@ -2409,7 +2371,7 @@ function promptAssigneeAfterStatus(p, newStatus){
   <div class="dh"><div class="dh-title">Set Assignee</div></div>
   <div class="db">
     <div style="font-size:13px;color:var(--text2);margin-bottom:14px">
-      <strong>${p.name}</strong> marked <strong>${newStatus}</strong>. Confirm assignee:
+      <strong>${esc(p.name)}</strong> marked <strong>${newStatus}</strong>. Confirm assignee:
     </div>
     <div class="f"><label>Assignee</label>
       ${cSelHTML("ap-assignee", MEMBER_OPTS(prefill), prefill||"", "_noop", {placeholder:"— Unassigned —"})}
@@ -2510,7 +2472,6 @@ function openMfgCompleteSerialPrompt(order,part){
       persistPart(p2);
     }
     // Now apply serial attributions (producedSerials now available)
-    if(ord)applyMfgAttribs(ord, ord._prevStatusForAttrib||"In Progress", "Complete", ord._manufacturedBy||ord.assignee||"");
     // Update serialized component locations
     const comps=order.serializedComps||[];
     comps.forEach((sc,idx)=>{
@@ -2573,7 +2534,7 @@ function persistPart(part){
   part.updatedAt=Date.now();
   const i=S.parts.findIndex(x=>x.id===part.id);if(i>=0)S.parts[i]=part;else S.parts.push(part);
   if(S.selected?.id===part.id)S.selected=part;saveLocal(S.parts,S.mfgOrders);
-  if(S.connected&&getFbCfg())fbUpsertPart(part);
+  if(getFbCfg())fbUpsertPart(part);
   // Auto-expand parent when part gains its first child
   (part.whereUsed||[]).forEach(wu=>{
     const parent=S.parts.find(x=>x.pn===wu.parentPn);
@@ -2949,10 +2910,15 @@ function _initCallbacks(){
       p.whereUsed=[];
       S.parts.forEach(other=>{other.whereUsed=(other.whereUsed||[]).filter(w=>w.parentPn!==p.pn);});
     }
+    const _creditFrom=["In Design","Needs Review","Needs Revision"];
+    if(_creditFrom.includes(prevStatus)&&prevStatus!==val){logCredit(p,prevStatus,val,prevAssignee);}
     p.status=val;persistPart(p);
     requestAnimationFrame(()=>window.scrollTo({top:scrollY,behavior:"instant"}));
-    applyDesignAttribs({...p,assignee:prevAssignee},prevStatus,val);
-    promptAssigneeAfterStatus(p,val);
+    if(prevStatus==="Needs Revision"&&val!=="Needs Revision"&&val!=="Obsolete"){
+      promptRevBump(p.id,()=>promptAssigneeAfterStatus(p,val));
+    } else {
+      promptAssigneeAfterStatus(p,val);
+    }
   };
   window._cbListAssignee=(val, triggerId)=>{
     const id=triggerId.replace(/^c[a-z0-9]+-asgn-/,"");
@@ -2976,15 +2942,15 @@ function _initCallbacks(){
     const scrollY=window.scrollY;
     const prev=o.status;
     const prevAssignee=o.assignee||"";
+    const _mfgCreditFrom=["In Progress","Needs Inspection"];
+    if(_mfgCreditFrom.includes(prev)&&prev!==val){logCredit(o,prev,val,prevAssignee);}
     o.status=val;
     if(val==="Complete"){
-      o._prevStatusForAttrib=prev;
       if(!o.completedDate)o.completedDate=getCentralToday().toISOString().slice(0,10);
     }
     saveLocal(S.parts,S.mfgOrders);
-    if(S.connected&&getFbCfg())fbUpsertOrder(o);
+    if(getFbCfg())fbUpsertOrder(o);
     requestAnimationFrame(()=>window.scrollTo({top:scrollY,behavior:"instant"}));
-    applyMfgAttribs(o,prev,val,prevAssignee);
     if(val==="Complete"&&prev!=="Complete"){
       const p=S.parts.find(x=>x.id===o.partId);
       if(p&&p.serialized)openMfgCompleteSerialPrompt(o,p);else render();
@@ -3185,19 +3151,19 @@ function buildDmView(){
     const inlineRev=cSel("cdm2-rev-"+p.id, REV_OPTS_INLINE(), p.rev||"-", "_cbListRev", {small:true, mono:true, style:"width:100%;"});
     return`<tr data-id="${p.id}" oncontextmenu="ctxListRow(event,'${p.id}')">
       <td style="font-family:var(--mono);font-size:12px"><span class="pn">${fullPN(p.pn,p.rev)}</span></td>
-      <td style="font-weight:600;color:${nameColor};overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${p.name}">${p.name}</td>
+      <td style="font-weight:600;color:${nameColor};overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(p.name)}">${esc(p.name)}</td>
       <td>${inlineAssignee}</td>
       <td>${inlineStatus}</td>
       <td>${inlineRev}</td>
       <td style="font-size:12px;${dd.style||'color:var(--text)'}">${p.designDueDate||"—"}${dd.icon}</td>
-      <td><button class="btn icon btn-edit-row" data-id="${p.id}">${I.edit}</button></td>
+      <td><div style="display:flex;gap:2px"><button class="btn icon btn-edit-row" data-id="${p.id}">${I.edit}</button><button class="btn icon btn-credits-row" data-id="${p.id}" title="View Credits">${I.credits}</button></div></td>
     </tr>`;
   }
 
   const dmTh=(col,lbl,w)=>`<th class="dm-sort-th" data-sort-col="${col}" style="text-align:left;padding:7px 8px;font-size:10px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.08em;cursor:pointer;user-select:none;width:${w};overflow:visible"><div style="display:flex;align-items:center;gap:2px;white-space:nowrap">${lbl}<span style="color:${S.dmSort===col?"var(--red3)":"var(--text3)"};font-size:10px;flex-shrink:0">${S.dmSort===col?(S.dmSortDir===1?"↑":"↓"):"↕"}</span></div></th>`;
   const tableHead=`<table style="width:100%;border-collapse:collapse;table-layout:fixed"><thead><tr>
-    ${dmTh("pn","Part #","11%")}${dmTh("name","Name","18%")}${dmTh("assignee","Assignee","15%")}${dmTh("status","Status","15%")}${dmTh("rev","Rev","6%")}${dmTh("designDueDate","Design Due","11%")}
-    <th style="width:36px"></th>
+    ${dmTh("pn","Part #","12%")}${dmTh("name","Name","24%")}${dmTh("assignee","Assignee","16%")}${dmTh("status","Status","16%")}${dmTh("rev","Rev","7%")}${dmTh("designDueDate","Design Due","13%")}
+    <th style="width:72px;min-width:72px"></th>
   </tr></thead>`;
 
   return`<div>
@@ -3270,12 +3236,12 @@ function buildDmView(){
         }).join("");
         const dd2=assy.designDueDate?dueDateStyle2(assy.designDueDate):{style:"",icon:""};
         const isActive=(S.dmSubPath||[]).includes(assy.pn);
-        return`<div class="dm-sub-card" data-pn="${assy.pn}" style="margin-bottom:0;padding:12px 14px;background:${isActive?"var(--bg4)":"var(--bg3)"};border:1px solid ${isActive?"var(--red3)":"var(--border)"};${noChildren?"opacity:.6":""};border-radius:var(--r);cursor:pointer;transition:border-color .15s,background .15s" title="${isActive?"Click to exit isolated view":"Click to isolate "+assy.name}">
+        return`<div class="dm-sub-card" data-pn="${assy.pn}" style="margin-bottom:0;padding:12px 14px;background:${isActive?"var(--bg4)":"var(--bg3)"};border:1px solid ${isActive?"var(--red3)":"var(--border)"};${noChildren?"opacity:.6":""};border-radius:var(--r);cursor:pointer;transition:border-color .15s,background .15s" title="${isActive?"Click to exit isolated view":"Click to isolate "+esc(assy.name)}">
           <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
             ${isActive?`<span style="font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.1em;color:var(--red3);background:#1e0808;border:1px solid var(--red3);border-radius:3px;padding:1px 5px;flex-shrink:0">Isolated</span>`:""}
             <div style="width:11px;height:11px;border-radius:50%;background:${sColor(assy.status)};flex-shrink:0;box-shadow:0 0 6px ${sColor(assy.status)}55"></div>
             <span style="font-family:var(--mono);font-size:11px;color:var(--text);flex-shrink:0">${fullPN(assy.pn,assy.rev)}</span>
-            <span style="font-size:13px;font-weight:700;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${assy.name}</span>
+            <span style="font-size:13px;font-weight:700;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(assy.name)}</span>
             ${assy.assignee?`<span style="font-size:11px;padding:2px 7px;border-radius:10px;background:var(--bg4);border:1px solid var(--border2);color:var(--text2);white-space:nowrap;flex-shrink:0">${assy.assignee}</span>`:""}            
             <span style="flex:1"></span>
             <span style="font-family:var(--mono);font-size:15px;font-weight:800;color:${noChildren?"var(--text3)":"var(--text)"};flex-shrink:0">${noChildren?"—":subPct.toFixed(1)+"%"}</span>
@@ -3432,34 +3398,15 @@ function openOemUsedInDialog(id){
 // ══════════════════════════════════════════════════
 //  MFG BOM DIALOG — shows component list for assembly orders
 // ══════════════════════════════════════════════════
-function openMfgCreditsDialog(orderId){
-  const o=S.mfgOrders.find(x=>x.id===orderId);if(!o)return;
-  const row=(label,val)=>val?`<div style="display:flex;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)">
-    <div style="font-size:11px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.08em;width:130px;flex-shrink:0">${label}</div>
-    <div style="font-size:13px;color:var(--text)">${val}</div>
-  </div>`:"";
-  const d=openDlg("mfg-credits","min(400px,96vw)",`
-  <div class="dh">
-    <div class="dh-title">Credits — ${o.mfgNum||""} ${o.partName}</div>
-    <button id="cred-x" class="btn icon" style="margin-left:auto">${I.x}</button>
-  </div>
-  <div class="db">
-    ${row("Assignee",o.assignee)}
-    ${row("Manufactured By",o.manufacturedBy||o._manufacturedBy||"")}
-    ${row("Inspected By",o.inspectedBy)}
-    ${!o.manufacturedBy&&!o._manufacturedBy&&!o.inspectedBy?`<div style="padding:20px 0;text-align:center;color:var(--text3);font-size:13px">No credits recorded yet.</div>`:""}
-  </div>
-  <div class="df"><button id="cred-close" class="btn">Close</button></div>`);
-  d.querySelector("#cred-x").addEventListener("click",()=>closeDlg("mfg-credits"));
-  d.querySelector("#cred-close").addEventListener("click",()=>closeDlg("mfg-credits"));
-}
+// (mfg credits dialog removed)
+
 
 function openAddDepDialog(partId){
   const part=S.parts.find(x=>x.id===partId);if(!part)return;
   const pool=S.parts.filter(x=>x.id!==partId&&!(part.dependencies||[]).includes(x.pn));
   const rows=buildDepRows([],pool);
   const d=openDlg("add-dep","min(520px,96vw)",`
-  <div class="dh"><div class="dh-title">${I.plus} Add Dependency to ${part.name}</div><button id="adx" class="btn icon" style="margin-left:auto">${I.x}</button></div>
+  <div class="dh"><div class="dh-title">${I.plus} Add Dependency to ${esc(part.name)}</div><button id="adx" class="btn icon" style="margin-left:auto">${I.x}</button></div>
   <div class="db">
     <div style="font-size:13px;color:var(--text2);margin-bottom:12px">Select a part this part depends on.</div>
     <div id="add-dep-con">${rows}</div>
@@ -3489,7 +3436,7 @@ function openMfgBomDialog(orderId){
     const qty=(wu?.qty||1)*o.qty;
     return`<tr style="border-bottom:1px solid var(--border)">
       <td style="padding:8px;font-family:var(--mono);font-size:12px;color:${p.isOem?"var(--blue-text)":"var(--text)"}">${fullPN(p.pn,p.rev)}</td>
-      <td style="padding:8px;font-size:13px;font-weight:600;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${p.name}">${p.name}</td>
+      <td style="padding:8px;font-size:13px;font-weight:600;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(p.name)}">${esc(p.name)}</td>
       <td style="padding:8px;font-family:var(--mono);font-size:12px;text-align:center;color:var(--text)">${wu?.qty||1}</td>
       <td style="padding:8px;font-family:var(--mono);font-size:12px;text-align:center;color:var(--amber-text)">${o.qty>1?qty:""}</td>
       <td style="padding:8px">${sBadge(p.status)}</td>
