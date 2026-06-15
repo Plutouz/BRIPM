@@ -539,6 +539,82 @@ const OEM_ST=["Current","Obsolete (OEM)"];
 const NEEDS_ASSIGNEE=["In Design","Needs Review","Needs Revision"];
 const MFG_ST=["Open","In Progress","Needs Inspection","Complete","On Hold","Cancelled"];
 const REV_OPTS=["-","A","B","C","D","E","F","G","H","J","K","L","M","N","P","Q","R","S","T","U","V","W","X","Y","Z"];
+function openChangePwDialog(){
+  const d=openDlg("change-pw","min(400px,96vw)",`
+  <div class="dh"><div class="dh-title">Change Password</div><button id="cpw-x" class="btn icon" style="margin-left:auto">${I.x}</button></div>
+  <div class="db">
+    <div class="f"><label>New Password</label><input id="cpw-new" type="password" autocomplete="new-password" style="width:100%;padding:9px 12px;border:1px solid var(--border2);border-radius:var(--r);background:var(--bg3);color:var(--text);font-size:13px;box-sizing:border-box"></div>
+    <div class="f"><label>Confirm New Password</label><input id="cpw-conf" type="password" autocomplete="new-password" style="width:100%;padding:9px 12px;border:1px solid var(--border2);border-radius:var(--r);background:var(--bg3);color:var(--text);font-size:13px;box-sizing:border-box"></div>
+    <div id="cpw-msg" style="font-size:12px;margin-top:8px"></div>
+  </div>
+  <div class="df"><button id="cpw-cancel" class="btn">Cancel</button><button id="cpw-ok" class="btn primary">Update</button></div>`);
+  d.querySelector("#cpw-x").addEventListener("click",()=>closeDlg("change-pw"));
+  d.querySelector("#cpw-cancel").addEventListener("click",()=>closeDlg("change-pw"));
+  d.querySelector("#cpw-ok").addEventListener("click",()=>{
+    const np=d.querySelector("#cpw-new").value||"",cf=d.querySelector("#cpw-conf").value||"";
+    const msg=d.querySelector("#cpw-msg");
+    if(np.length<6){msg.style.color="var(--red3)";msg.textContent="At least 6 characters.";return;}
+    if(np!==cf){msg.style.color="var(--red3)";msg.textContent="Passwords don't match.";return;}
+    changeMyPassword(np).then(()=>{closeDlg("change-pw");}).catch(e=>{
+      let m=e.message||"Failed.";
+      if(e.code==="auth/requires-recent-login")m="For security, sign out and back in, then try again.";
+      msg.style.color="var(--red3)";msg.textContent=m;
+    });
+  });
+}
+
+function openAddMemberDialog(){
+  if(!isAdmin()){alert("Only admins can add members.");return;}
+  const d=openDlg("add-member","min(440px,96vw)",`
+  <div class="dh"><div class="dh-title">${I.plus} Add Team Member</div><button id="am-x" class="btn icon" style="margin-left:auto">${I.x}</button></div>
+  <div class="db">
+    <div class="f"><label>Email (login)</label><input id="am-email" type="email" autocomplete="off" placeholder="name@crimson.ua.edu" style="width:100%;padding:9px 12px;border:1px solid var(--border2);border-radius:var(--r);background:var(--bg3);color:var(--text);font-family:var(--mono);font-size:13px;box-sizing:border-box"></div>
+    <div class="f"><label>Full Name</label><input id="am-name" type="text" autocomplete="off" placeholder="Full Name" style="width:100%;padding:9px 12px;border:1px solid var(--border2);border-radius:var(--r);background:var(--bg3);color:var(--text);font-family:var(--sans);font-size:13px;box-sizing:border-box"></div>
+    <div class="f-row">
+      <div class="f"><label>Role</label><select id="am-role" style="width:100%;padding:9px 12px;border:1px solid var(--border2);border-radius:var(--r);background:var(--bg3);color:var(--text);font-size:13px;-webkit-appearance:none;appearance:none">${ROLE_OPTS.map(r=>`<option value="${r}">${r}</option>`).join("")}</select></div>
+      <div class="f"><label>Temporary Password</label><input id="am-pass" type="text" autocomplete="off" value="BamaRacing${Math.floor(Math.random()*900+100)}!" style="width:100%;padding:9px 12px;border:1px solid var(--border2);border-radius:var(--r);background:var(--bg3);color:var(--text);font-family:var(--mono);font-size:13px;box-sizing:border-box"></div>
+    </div>
+    <div style="font-size:12px;color:var(--text2);line-height:1.5;margin-top:6px">Creates a login account and adds them to the roster. Share the temporary password with them — they can change it after signing in.</div>
+    <div id="am-msg" style="font-size:12px;margin-top:10px"></div>
+  </div>
+  <div class="df"><button id="am-cancel" class="btn">Cancel</button><button id="am-ok" class="btn primary">Create Member</button></div>`);
+  d.querySelector("#am-x").addEventListener("click",()=>closeDlg("add-member"));
+  d.querySelector("#am-cancel").addEventListener("click",()=>closeDlg("add-member"));
+  d.querySelector("#am-ok").addEventListener("click",()=>{
+    const email=(d.querySelector("#am-email").value||"").trim().toLowerCase();
+    const name=(d.querySelector("#am-name").value||"").trim();
+    const role=d.querySelector("#am-role").value||"member";
+    const pass=d.querySelector("#am-pass").value||"";
+    const msg=d.querySelector("#am-msg");
+    if(!email||!email.includes("@")){msg.style.color="var(--red3)";msg.textContent="Enter a valid email.";return;}
+    if(!name){msg.style.color="var(--red3)";msg.textContent="Enter a name.";return;}
+    if(pass.length<6){msg.style.color="var(--red3)";msg.textContent="Password must be at least 6 characters.";return;}
+    if((S.teamRoster||[]).some(r=>(r.email||"").toLowerCase()===email)||email===LOCKED_ADMIN.email){msg.style.color="var(--red3)";msg.textContent="That email is already on the roster.";return;}
+    const okBtn=d.querySelector("#am-ok");okBtn.disabled=true;okBtn.textContent="Creating…";
+    createMemberAccount(email,pass).then(()=>{
+      S.teamRoster=[...(S.teamRoster||[]).filter(r=>(r.email||"").toLowerCase()!==email),{email,name,role}];
+      syncTeamMembersFromRoster();
+      saveLocal(S.parts,S.mfgOrders);
+      if(getFbCfg())upsertAll(S.parts,S.mfgOrders).catch(()=>{});
+      closeDlg("add-member");render();
+    }).catch(e=>{
+      okBtn.disabled=false;okBtn.textContent="Create Member";
+      let m="Could not create account.";
+      if(e.code==="auth/email-already-in-use")m="An account with that email already exists in Firebase. Adding to roster only.";
+      else if(e.code==="auth/weak-password")m="Password too weak.";
+      else if(e.message)m=e.message;
+      // If the auth account already exists, still let them onto the roster
+      if(e.code==="auth/email-already-in-use"){
+        S.teamRoster=[...(S.teamRoster||[]).filter(r=>(r.email||"").toLowerCase()!==email),{email,name,role}];
+        syncTeamMembersFromRoster();saveLocal(S.parts,S.mfgOrders);
+        if(getFbCfg())upsertAll(S.parts,S.mfgOrders).catch(()=>{});
+        closeDlg("add-member");render();return;
+      }
+      msg.style.color="var(--red3)";msg.textContent=m;
+    });
+  });
+}
+
 function openCreditsDialog(kind, id){
   const obj=kind==="mfg"?S.mfgOrders.find(x=>x.id===id):S.parts.find(x=>x.id===id);
   if(!obj)return;
@@ -778,7 +854,7 @@ function buildTopBar(){
   return`<div class="topbar">
     <span class="topbar-title">${titles[S.view]||""}</span>
     ${S.connected?`<button class="btn sm ghost" id="btn-refresh">${I.refresh}</button>`:""}
-    ${S.authUser?`<div class="user-chip">${I.user} ${esc(S.authUser.name||"")}${S.authRole?`<span style="font-size:9px;text-transform:uppercase;letter-spacing:.06em;background:var(--bg4);border:1px solid var(--border2);border-radius:8px;padding:1px 6px;margin-left:6px;color:var(--text2)">${S.authRole}</span>`:""}</div><button class="btn sm ghost" id="btn-logout" title="Sign out">Sign out</button>`:(S.connected?`<div class="user-chip">${I.user} ${S.user?.name||""}</div>`:`<button class="btn sm primary" id="btn-connect">Connect to Firebase</button>`)}
+    ${S.authUser?`<div class="user-chip">${I.user} ${esc(S.authUser.name||"")}${S.authRole?`<span style="font-size:9px;text-transform:uppercase;letter-spacing:.06em;background:var(--bg4);border:1px solid var(--border2);border-radius:8px;padding:1px 6px;margin-left:6px;color:var(--text2)">${S.authRole}</span>`:""}</div><button class="btn sm ghost" id="btn-changepw" title="Change password">${I.user}</button><button class="btn sm ghost" id="btn-logout" title="Sign out">Sign out</button>`:(S.connected?`<div class="user-chip">${I.user} ${S.user?.name||""}</div>`:`<button class="btn sm primary" id="btn-connect">Connect to Firebase</button>`)}
     ${S.view==="mfg"
       ?`<button class="btn primary" id="top-new-mfg">${I.plus} New Order</button>`
       :`<button class="btn primary" id="top-new-br">${I.plus} Create BR Part</button><button class="btn" id="top-new-oem">${I.oem} Create OEM Part</button>`}
@@ -1488,9 +1564,9 @@ function bindPage(){
     });
   });
   document.getElementById("tm-add-row")?.addEventListener("click",()=>{
-    S.teamRoster=[...collectRoster().filter(r=>r.email!==LOCKED_ADMIN.email),{email:"",name:"",role:"member"}];
-    saveLocal(S.parts,S.mfgOrders);render();
-    setTimeout(()=>{const rows=document.querySelectorAll(".tm-email");if(rows.length)rows[rows.length-1].focus();},50);
+    // persist any in-progress edits to existing rows first
+    S.teamRoster=collectRoster().filter(r=>r.email!==LOCKED_ADMIN.email);
+    openAddMemberDialog();
   });
   document.querySelectorAll(".tm-del").forEach(btn=>{
     btn.addEventListener("click",()=>{
@@ -1557,6 +1633,7 @@ function bindPage(){
   // nav-setup removed — settings now has its own tab
   document.getElementById("settings-sp-setup")?.addEventListener("click",openSetup);
   document.getElementById("btn-logout")?.addEventListener("click",doLogout);
+  document.getElementById("btn-changepw")?.addEventListener("click",openChangePwDialog);
   document.getElementById("btn-refresh")?.addEventListener("click",()=>{if(S.connected)pullFromFirebase();});
   document.getElementById("btn-connect")?.addEventListener("click",connectFirebase);
   document.getElementById("top-new-br")?.addEventListener("click",()=>openEdit(null));
@@ -3073,31 +3150,35 @@ function resolveRole(email){
 function isAdmin(){return S.authRole==="admin";}
 function isLeadOrAdmin(){return S.authRole==="admin"||S.authRole==="lead";}
 
-function sendLoginLink(email){
+function loginWithPassword(email,password){
   const auth=initFbAuth();if(!auth)return Promise.reject(new Error("Auth unavailable"));
-  const actionCodeSettings={url:window.location.origin+window.location.pathname,handleCodeInApp:true};
-  return auth.sendSignInLinkToEmail(email,actionCodeSettings).then(()=>{
-    window.localStorage.setItem("ipm_login_email",email);
-  });
+  return auth.signInWithEmailAndPassword(email,password);
 }
-function completeLoginIfLink(){
-  const auth=initFbAuth();if(!auth)return Promise.resolve(false);
-  if(!auth.isSignInWithEmailLink(window.location.href))return Promise.resolve(false);
-  let email=window.localStorage.getItem("ipm_login_email");
-  if(!email)email=window.prompt("Confirm your email to finish signing in:");
-  if(!email)return Promise.resolve(false);
-  return auth.signInWithEmailLink(email,window.location.href).then(()=>{
-    window.localStorage.removeItem("ipm_login_email");
-    // Clean the URL of the sign-in params
-    window.history.replaceState({},document.title,window.location.pathname);
-    return true;
-  });
+function sendPasswordReset(email){
+  const auth=initFbAuth();if(!auth)return Promise.reject(new Error("Auth unavailable"));
+  return auth.sendPasswordResetEmail(email);
+}
+function changeMyPassword(newPassword){
+  const auth=initFbAuth();if(!auth||!auth.currentUser)return Promise.reject(new Error("Not signed in"));
+  return auth.currentUser.updatePassword(newPassword);
+}
+// Secondary Firebase app for creating members without disturbing admin session
+let _fbSecondary=null;
+function createMemberAccount(email,password){
+  try{
+    if(!_fbSecondary){
+      _fbSecondary=firebase.initializeApp(FB_AUTH_CONFIG,"secondary");
+    }
+    return _fbSecondary.auth().createUserWithEmailAndPassword(email,password).then(cred=>{
+      return _fbSecondary.auth().signOut().then(()=>cred);
+    });
+  }catch(e){return Promise.reject(e);}
 }
 function doLogout(){
   const auth=initFbAuth();if(auth)auth.signOut();
 }
 
-// Login screen UI
+// Login screen UI (email + password)
 function renderLoginScreen(opts){
   opts=opts||{};
   const page=document.getElementById("page");if(!page)return;
@@ -3105,39 +3186,41 @@ function renderLoginScreen(opts){
     <div style="width:min(400px,92vw);background:var(--bg2);border:1px solid var(--border);border-radius:14px;padding:34px 30px;text-align:center">
       <img src="${LOGO_URI}" alt="Bama Racing" style="width:64px;height:64px;object-fit:contain;margin-bottom:14px">
       <div style="font-size:18px;font-weight:800;color:var(--text);margin-bottom:4px">Inventory &amp; Part Manager</div>
-      <div style="font-size:13px;color:var(--text2);margin-bottom:24px">Sign in with your team email</div>
-      ${opts.sent?`
-        <div style="background:#051a0d;border:1px solid #145228;border-radius:8px;padding:16px;color:#22c55e;font-size:13px;line-height:1.6">
-          ✓ Sign-in link sent to<br><strong>${esc(opts.sent)}</strong><br><br>
-          <span style="color:var(--text2)">Check your inbox and click the link to finish signing in. You can close this tab.</span>
-        </div>
-        <button id="login-back" class="btn sm ghost" style="margin-top:16px">Use a different email</button>
-      `:`
-        <input id="login-email" type="email" autocomplete="email" placeholder="name@crimson.ua.edu"
-          style="width:100%;padding:11px 14px;border:1px solid var(--border2);border-radius:8px;background:var(--bg3);color:var(--text);font-size:14px;box-sizing:border-box;margin-bottom:12px">
-        <button id="login-send" class="btn primary" style="width:100%;padding:11px;font-size:14px">Send Sign-In Link</button>
-        ${opts.error?`<div style="color:var(--red3);font-size:12px;margin-top:12px">${esc(opts.error)}</div>`:""}
-        <div style="font-size:11px;color:var(--text3);margin-top:18px;line-height:1.5">A one-time link will be emailed to you. No password needed.</div>
-      `}
+      <div style="font-size:13px;color:var(--text2);margin-bottom:24px">Sign in to continue</div>
+      ${opts.resetSent?`<div style="background:#051a0d;border:1px solid #145228;border-radius:8px;padding:14px;color:#22c55e;font-size:13px;line-height:1.5;margin-bottom:14px">Password reset email sent to <strong>${esc(opts.resetSent)}</strong> (check spam).</div>`:""}
+      <input id="login-email" type="email" autocomplete="email" placeholder="Email" value="${esc(opts.email||"")}"
+        style="width:100%;padding:11px 14px;border:1px solid var(--border2);border-radius:8px;background:var(--bg3);color:var(--text);font-size:14px;box-sizing:border-box;margin-bottom:10px">
+      <input id="login-pass" type="password" autocomplete="current-password" placeholder="Password"
+        style="width:100%;padding:11px 14px;border:1px solid var(--border2);border-radius:8px;background:var(--bg3);color:var(--text);font-size:14px;box-sizing:border-box;margin-bottom:12px">
+      <button id="login-go" class="btn primary" style="width:100%;padding:11px;font-size:14px">Sign In</button>
+      ${opts.error?`<div style="color:var(--red3);font-size:12px;margin-top:12px">${esc(opts.error)}</div>`:""}
+      <button id="login-forgot" class="btn sm ghost" style="margin-top:14px;font-size:12px">Forgot password?</button>
     </div>
   </div>`;
-  const sendBtn=document.getElementById("login-send");
-  if(sendBtn){
-    const submit=()=>{
-      const email=(document.getElementById("login-email").value||"").trim().toLowerCase();
-      if(!email||!email.includes("@")){renderLoginScreen({error:"Enter a valid email."});return;}
-      sendBtn.disabled=true;sendBtn.textContent="Sending…";
-      sendLoginLink(email).then(()=>{
-        renderLoginScreen({sent:email});
-      }).catch(e=>{
-        renderLoginScreen({error:e.message||"Could not send link."});
-      });
-    };
-    sendBtn.addEventListener("click",submit);
-    document.getElementById("login-email").addEventListener("keydown",e=>{if(e.key==="Enter")submit();});
-    document.getElementById("login-email").focus();
-  }
-  document.getElementById("login-back")?.addEventListener("click",()=>renderLoginScreen({}));
+  const goBtn=document.getElementById("login-go");
+  const submit=()=>{
+    const email=(document.getElementById("login-email").value||"").trim().toLowerCase();
+    const pass=document.getElementById("login-pass").value||"";
+    if(!email||!pass){renderLoginScreen({email,error:"Enter your email and password."});return;}
+    goBtn.disabled=true;goBtn.textContent="Signing in…";
+    loginWithPassword(email,pass).catch(e=>{
+      let msg="Sign-in failed.";
+      if(e.code==="auth/wrong-password"||e.code==="auth/invalid-credential")msg="Incorrect email or password.";
+      else if(e.code==="auth/user-not-found")msg="No account found for that email.";
+      else if(e.code==="auth/too-many-requests")msg="Too many attempts. Try again later.";
+      else if(e.message)msg=e.message;
+      renderLoginScreen({email,error:msg});
+    });
+  };
+  goBtn.addEventListener("click",submit);
+  document.getElementById("login-pass").addEventListener("keydown",e=>{if(e.key==="Enter")submit();});
+  document.getElementById("login-email").addEventListener("keydown",e=>{if(e.key==="Enter")document.getElementById("login-pass").focus();});
+  document.getElementById("login-forgot").addEventListener("click",()=>{
+    const email=(document.getElementById("login-email").value||"").trim().toLowerCase();
+    if(!email||!email.includes("@")){renderLoginScreen({email,error:"Enter your email above first, then click Forgot password."});return;}
+    sendPasswordReset(email).then(()=>renderLoginScreen({email,resetSent:email})).catch(e=>renderLoginScreen({email,error:e.message||"Could not send reset."}));
+  });
+  (document.getElementById(opts.email?"login-pass":"login-email")||{}).focus?.();
 }
 
 // Access-denied screen (signed in but not on roster)
@@ -3199,9 +3282,8 @@ function renderDeniedScreen(email){
   }
   auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch(()=>{});
 
-  // First, complete a sign-in if this page load is from an email link
-  completeLoginIfLink().then(()=>{
-    // Then react to auth state
+  // React to auth state
+  {
     auth.onAuthStateChanged(user=>{
       if(!user){
         S.authUser=null;S.authRole=null;S.authReady=true;
@@ -3229,10 +3311,7 @@ function renderDeniedScreen(email){
         finishAuth();
       }
     });
-  }).catch(e=>{
-    console.error("[Auth] link completion failed",e);
-    renderLoginScreen({error:"Sign-in failed. Try again."});
-  });
+  }
 })();
 
 // Get all descendant part IDs under a given parentPn (recursive)
