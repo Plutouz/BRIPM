@@ -599,7 +599,10 @@ function memberBlocked(action){
 
 function logCredit(obj, fromStatus, toStatus, assignee){
   if(!obj.credits)obj.credits=[];
-  obj.credits.push({from:fromStatus,to:toStatus,assignee:assignee||"(unassigned)",date:getCentralToday().toISOString().slice(0,10)});
+  const now=new Date();
+  const pad=n=>String(n).padStart(2,"0");
+  const ts=now.getFullYear()+"-"+pad(now.getMonth()+1)+"-"+pad(now.getDate())+" "+pad(now.getHours())+":"+pad(now.getMinutes());
+  obj.credits.push({from:fromStatus,to:toStatus,assignee:assignee||"(unassigned)",changedBy:myName()||"(unknown)",ts});
 }
 const nextRev=cur=>{const i=REV_OPTS.indexOf(cur||"-");return(i>=0&&i<REV_OPTS.length-1)?REV_OPTS[i+1]:cur;};
 function sColor(s){
@@ -3024,8 +3027,7 @@ function _initCallbacks(){
       p.whereUsed=[];
       S.parts.forEach(other=>{other.whereUsed=(other.whereUsed||[]).filter(w=>w.parentPn!==p.pn);});
     }
-    const _creditFrom=["In Design","Needs Review","Needs Revision"];
-    if(_creditFrom.includes(prevStatus)&&prevStatus!==val){logCredit(p,prevStatus,val,prevAssignee);}
+    if(prevStatus!==val){logCredit(p,prevStatus,val,prevAssignee);}
     p.status=val;persistPart(p);
     if(prevStatus==="Needs Revision"&&val!=="Needs Revision"&&val!=="Obsolete"){
       promptRevBump(p.id,()=>promptAssigneeAfterStatus(p,val));
@@ -3052,8 +3054,7 @@ function _initCallbacks(){
     const o=S.mfgOrders.find(x=>x.id===id);if(!o)return;
     const prev=o.status;
     const prevAssignee=o.assignee||"";
-    const _mfgCreditFrom=["In Progress","Needs Inspection"];
-    if(_mfgCreditFrom.includes(prev)&&prev!==val){logCredit(o,prev,val,prevAssignee);}
+    if(prev!==val){logCredit(o,prev,val,prevAssignee);}
     o.status=val;
     if(val==="Complete"){
       if(!o.completedDate)o.completedDate=getCentralToday().toISOString().slice(0,10);
