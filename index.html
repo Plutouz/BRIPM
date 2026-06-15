@@ -4,7 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
 <title>BR IPM</title>
-<script src="https://cdn.jsdelivr.net/npm/@azure/msal-browser@3.10.0/lib/msal-browser.min.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
@@ -346,8 +347,25 @@ const OEM_STATUS_OPTS=()=>OEM_ST.map(s=>({value:s,label:s,color:sColor(s)}));
 const MFG_STATUS_OPTS=()=>MFG_ST.map(s=>({value:s,label:s,color:{Open:"var(--text)","In Progress":"#eab308","Needs Inspection":"#22c55e","On Hold":"#f09595",Complete:"#3b82f6",Cancelled:"#9898b0"}[s]||"var(--text)"}));
 const REV_OPTS_LIST=()=>REV_OPTS.map(r=>({value:r,label:r==="-"?"-":"Rev "+r}));
 const REV_OPTS_INLINE=()=>REV_OPTS.map(r=>({value:r,label:r==="-"?"-":r}));
-const MEMBER_OPTS=(selected)=>[{value:"",label:"— Unassigned —"},...(S.teamMembers.length?S.teamMembers:S.assigneeSuggestions).map(m=>({value:m,label:m}))];
-const MEMBER_OPTS_ANY=(selected)=>[{value:"",label:"— Any —"},...(S.teamMembers.length?S.teamMembers:S.assigneeSuggestions).map(m=>({value:m,label:m}))];
+const LOCKED_ADMIN={email:"bamaracing@ua.edu",name:"ADMIN",role:"admin"};
+const ROLE_OPTS=["member","lead","admin"];
+function collectRoster(){
+  return Array.from(document.querySelectorAll("#tm-tbody tr[data-tm-idx]")).map(row=>({
+    email:(row.querySelector(".tm-email")?.value||"").trim().toLowerCase(),
+    name:(row.querySelector(".tm-name")?.value||"").trim(),
+    role:(row.querySelector(".tm-role")?.value||"member"),
+  })).filter(m=>m.email||m.name);
+}
+function syncTeamMembersFromRoster(){
+  S.teamMembers=getRoster().map(r=>r.name).filter(Boolean);
+  S.assigneeSuggestions=[...new Set([...S.teamMembers,...S.assigneeSuggestions])];
+}
+function getRoster(){
+  const roster=(S.teamRoster||[]).filter(r=>(r.email||"").toLowerCase()!==LOCKED_ADMIN.email);
+  return [LOCKED_ADMIN,...roster];
+}
+const MEMBER_OPTS=(selected)=>[{value:"",label:"— Unassigned —"},...((getRoster().length>1?getRoster().map(r=>r.name).filter(Boolean):(S.teamMembers.length?S.teamMembers:S.assigneeSuggestions))).map(m=>({value:m,label:m}))];
+const MEMBER_OPTS_ANY=(selected)=>[{value:"",label:"— Any —"},...((getRoster().length>1?getRoster().map(r=>r.name).filter(Boolean):(S.teamMembers.length?S.teamMembers:S.assigneeSuggestions))).map(m=>({value:m,label:m}))];
 
 // ══════════════════════════════════════════════════
 //  STORAGE
@@ -355,8 +373,8 @@ const MEMBER_OPTS_ANY=(selected)=>[{value:"",label:"— Any —"},...(S.teamMemb
 const CFG_KEY="br26_cfg_v1",DATA_KEY="br26_data_v11",HIST_KEY="br26_history_v1",CAR="26";
 const loadCfg=()=>{try{return JSON.parse(localStorage.getItem(CFG_KEY))||{};}catch(e){return{};}};
 const saveCfg=c=>localStorage.setItem(CFG_KEY,JSON.stringify(c));
-const loadLocal=()=>{try{const r=JSON.parse(localStorage.getItem(DATA_KEY));if(r?.parts)return r;}catch(e){}return{parts:[],mfgOrders:[],teamMembers:[],compDate:"",deadlines:[],majorAssy:"",projectCodes:[],units:[]};};
-const saveLocal=(parts,mfgOrders)=>localStorage.setItem(DATA_KEY,JSON.stringify({parts,mfgOrders:mfgOrders||[],teamMembers:S.teamMembers||[],compDate:S.compDate||"",deadlines:S.deadlines||[],majorAssy:S.majorAssy||"",projectCodes:S.projectCodes||[]}));
+const loadLocal=()=>{try{const r=JSON.parse(localStorage.getItem(DATA_KEY));if(r?.parts)return r;}catch(e){}return{parts:[],mfgOrders:[],teamMembers:[],teamRoster:[],compDate:"",deadlines:[],majorAssy:"",projectCodes:[],units:[]};};
+const saveLocal=(parts,mfgOrders)=>localStorage.setItem(DATA_KEY,JSON.stringify({parts,mfgOrders:mfgOrders||[],teamMembers:S.teamMembers||[],teamRoster:S.teamRoster||[],compDate:S.compDate||"",deadlines:S.deadlines||[],majorAssy:S.majorAssy||"",projectCodes:S.projectCodes||[]}));
 const loadHistory=()=>{try{return JSON.parse(localStorage.getItem(HIST_KEY))||[];}catch(e){return[];}};
 const saveHistory=h=>localStorage.setItem(HIST_KEY,JSON.stringify(h.slice(0,20)));
 
@@ -638,9 +656,10 @@ const SAMPLE=[
 const S={
   view:"tree",parts:[],mfgOrders:[],selected:null,expanded:{__unplaced:true},
   search:"",user:null,syncStatus:"offline",connected:false,error:null,
+  authUser:null,authRole:null,authReady:false,
   sortCol:"pn",sortDir:1,config:loadCfg(),listFocus:-1,assigneeSuggestions:[],
   listFilter:{},mfgFilter:{},invFilter:{},oemFilter:{},dmFilter:{},dmSubFilter:"",dmSubPath:[],invTab:"br",dmSort:"pn",dmSortDir:1,mfgSort:"mfgNum",mfgSortDir:1,listSort:"pn",listSortDir:1,oemSort:"pn",oemSortDir:1,activeProfile:"",majorAssy:"",
-  teamMembers:[],compDate:"",deadlines:[],projectCodes:[],listProjectFilter:"",activeTreeRoot:"",activeTreeCode:"",isolatedTreeRoot:"",
+  teamMembers:[],teamRoster:[],compDate:"",deadlines:[],projectCodes:[],listProjectFilter:"",activeTreeRoot:"",activeTreeCode:"",isolatedTreeRoot:"",
 };
 function memberOptions(selectedVal){
   const members=S.teamMembers.length?S.teamMembers:S.assigneeSuggestions;
@@ -758,7 +777,8 @@ function buildTopBar(){
   const titles={tree:"Assembly Tree",list:"BR Parts Library",oem:"OEM Parts Library",mfg:"Manufacturing",settings:"Settings",dm:"Design Manager"};
   return`<div class="topbar">
     <span class="topbar-title">${titles[S.view]||""}</span>
-    ${S.connected?`<button class="btn sm ghost" id="btn-refresh">${I.refresh}</button><div class="user-chip">${I.user} ${S.user?.name||""}</div>`:`<button class="btn sm primary" id="btn-connect">Connect to Firebase</button>`}
+    ${S.connected?`<button class="btn sm ghost" id="btn-refresh">${I.refresh}</button>`:""}
+    ${S.authUser?`<div class="user-chip">${I.user} ${esc(S.authUser.name||"")}${S.authRole?`<span style="font-size:9px;text-transform:uppercase;letter-spacing:.06em;background:var(--bg4);border:1px solid var(--border2);border-radius:8px;padding:1px 6px;margin-left:6px;color:var(--text2)">${S.authRole}</span>`:""}</div><button class="btn sm ghost" id="btn-logout" title="Sign out">Sign out</button>`:(S.connected?`<div class="user-chip">${I.user} ${S.user?.name||""}</div>`:`<button class="btn sm primary" id="btn-connect">Connect to Firebase</button>`)}
     ${S.view==="mfg"
       ?`<button class="btn primary" id="top-new-mfg">${I.plus} New Order</button>`
       :`<button class="btn primary" id="top-new-br">${I.plus} Create BR Part</button><button class="btn" id="top-new-oem">${I.oem} Create OEM Part</button>`}
@@ -773,11 +793,31 @@ function buildSettingsView(){
     <div style="font-size:13px;color:var(--text2);margin-bottom:10px">Used for the countdown in the sidebar.</div>
     <input id="settings-compdate" type="date" value="${S.compDate||""}"
       style="padding:9px 12px;border:1px solid var(--border2);border-radius:var(--r);background:var(--bg3);color:var(--text);font-family:var(--sans);font-size:13px;width:200px">
-    <div style="font-size:15px;font-weight:700;margin-bottom:4px">Team Members</div>
-    <div style="font-size:13px;color:var(--text2);margin-bottom:10px">One name per line. Used in all assignee dropdowns throughout the IPM.</div>
-    <textarea id="settings-members" rows="12" autocomplete="off"
-      style="width:100%;padding:10px 12px;border:1px solid var(--border2);border-radius:var(--r);background:var(--bg3);color:var(--text);font-family:var(--sans);font-size:13px;resize:vertical;box-sizing:border-box;line-height:1.7"
-      placeholder="Alice Johnson&#10;Bob Smith&#10;Chris Lee">${S.teamMembers.join("\n")}</textarea>
+    <div style="font-size:15px;font-weight:700;margin-bottom:4px">Team Members &amp; Roles</div>
+    <div style="font-size:13px;color:var(--text2);margin-bottom:10px">Members log in with their email. Roles: member, lead, admin. Names are used in all assignee dropdowns. The admin account is locked.</div>
+    <table style="width:100%;border-collapse:collapse;margin-bottom:10px" id="tm-table">
+      <thead><tr>
+        <th style="text-align:left;padding:6px 8px;font-size:10px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.08em;border-bottom:1px solid var(--border)">Email</th>
+        <th style="text-align:left;padding:6px 8px;font-size:10px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.08em;border-bottom:1px solid var(--border);width:150px">Name</th>
+        <th style="text-align:left;padding:6px 8px;font-size:10px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.08em;border-bottom:1px solid var(--border);width:110px">Role</th>
+        <th style="width:36px;border-bottom:1px solid var(--border)"></th>
+      </tr></thead>
+      <tbody id="tm-tbody">
+        <tr style="border-bottom:1px solid var(--border);opacity:.75">
+          <td style="padding:4px 6px"><input type="text" value="${LOCKED_ADMIN.email}" disabled style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:var(--r);background:var(--bg4);color:var(--text2);font-family:var(--mono);font-size:13px"></td>
+          <td style="padding:4px 6px"><input type="text" value="${LOCKED_ADMIN.name}" disabled style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:var(--r);background:var(--bg4);color:var(--text2);font-family:var(--sans);font-size:13px"></td>
+          <td style="padding:4px 6px"><input type="text" value="admin" disabled style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:var(--r);background:var(--bg4);color:var(--text2);font-family:var(--sans);font-size:13px"></td>
+          <td style="padding:4px 6px"><span title="Locked" style="color:var(--text3);font-size:14px">🔒</span></td>
+        </tr>
+        ${(S.teamRoster||[]).filter(r=>(r.email||"").toLowerCase()!==LOCKED_ADMIN.email).map((m,i)=>`<tr data-tm-idx="${i}" style="border-bottom:1px solid var(--border)">
+          <td style="padding:4px 6px"><input class="tm-email" type="email" value="${esc(m.email)}" autocomplete="off" placeholder="name@crimson.ua.edu" style="width:100%;padding:6px 8px;border:1px solid var(--border2);border-radius:var(--r);background:var(--bg3);color:var(--text);font-family:var(--mono);font-size:13px"></td>
+          <td style="padding:4px 6px"><input class="tm-name" type="text" value="${esc(m.name)}" autocomplete="off" placeholder="Full Name" style="width:100%;padding:6px 8px;border:1px solid var(--border2);border-radius:var(--r);background:var(--bg3);color:var(--text);font-family:var(--sans);font-size:13px"></td>
+          <td style="padding:4px 6px"><select class="tm-role" style="width:100%;padding:6px 8px;border:1px solid var(--border2);border-radius:var(--r);background:var(--bg3);color:var(--text);font-family:var(--sans);font-size:13px;-webkit-appearance:none;appearance:none">${ROLE_OPTS.map(r=>`<option value="${r}" ${m.role===r?"selected":""}>${r}</option>`).join("")}</select></td>
+          <td style="padding:4px 6px"><button class="btn icon danger tm-del" data-idx="${i}" type="button">${I.trash}</button></td>
+        </tr>`).join("")}
+      </tbody>
+    </table>
+    <button class="btn sm" id="tm-add-row" type="button">${I.plus} Add Member</button>
     <hr style="border:none;border-top:1px solid var(--border);margin:20px 0">
     <div style="font-size:15px;font-weight:700;margin-bottom:4px">Project Codes</div>
     <div style="font-size:13px;color:var(--text2);margin-bottom:10px">Map 2-digit project codes to names. Codes ≤ 20 are treated as non-year-specific (no unplaced warning, excluded from car assembly lists).</div>
@@ -1061,7 +1101,7 @@ function buildListView(){
       <td style="font-family:var(--mono);font-size:12px">${fmtM(parseFloat(p.mass)||0)}</td>
       <td style="font-size:12px;color:var(--text2)">${p.location||"—"}</td>
       <td style="font-family:var(--mono);font-size:12px;color:${p.serialized?"var(--purple-text)":"var(--text3)"}">${p.serialized?`<span class="serial-dot-btn" data-id="${p.id}" style="cursor:pointer;color:var(--purple-text)">${snCount}</span>`:"—"}</td>
-      <td><div style="display:flex;gap:2px">
+      <td><div style="display:flex;gap:2px;justify-content:flex-end">
         <button class="btn icon btn-edit-row" data-id="${p.id}">${I.edit}</button>
         <button class="btn icon btn-credits-row" data-id="${p.id}" title="View Credits">${I.credits}</button>
         <button class="btn icon danger btn-del-row" data-id="${p.id}">${I.trash}</button>
@@ -1071,12 +1111,12 @@ function buildListView(){
 
   const tableHead=()=>`<div class="tbl-wrap"><table>
     <thead><tr>
-      ${th("pn","Part #","11%")}${th("name","Name","17%")}
-      ${th("status","Status","14%")}${th("assignee","Assignee","13%")}${th("rev","Rev","5%")}
+      ${th("pn","Part #","11%")}${th("name","Name","16%")}
+      ${th("status","Status","13%")}${th("assignee","Assignee","12%")}${th("rev","Rev","5%")}
       ${th("matCost","Cost","7%")}${th("mass","Mass (lb)","7%")}
       ${th("location","Location","9%")}
       <th style="width:9%;padding:7px 8px;font-size:10px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.08em">S# Count</th>
-      <th style="width:96px;min-width:96px"></th>
+      <th style="width:11%"></th>
     </tr></thead><tbody id="list-tbody">`;
 
   return`<div class="card">
@@ -1148,7 +1188,7 @@ function buildOemView(){
             <td style="font-size:12px;color:var(--text2)">${p.location||"—"}</td>
             <td style="font-family:var(--mono);font-size:12px;color:var(--text2)">${calcTotalQty(p.pn,S.parts)||"—"}</td>
             <td style="font-size:12px;cursor:pointer;color:var(--blue-text)" class="oem-usedin-click" data-id="${p.id}" title="Click to see where used">${usedIn.length?usedIn.map(x=>esc(x.name)).join(", "):"—"}</td>
-            <td><div style="display:flex;gap:2px">
+            <td><div style="display:flex;gap:2px;justify-content:flex-end">
               <button class="btn icon btn-edit-oem-row" data-id="${p.id}">${I.edit}</button>
               <button class="btn icon danger btn-del-row" data-id="${p.id}">${I.trash}</button>
             </div></td>
@@ -1411,9 +1451,7 @@ function bindPage(){
       d.querySelector("#su-dis").addEventListener("click",go);
       d.querySelector("#su-sav").addEventListener("click",()=>{
         // Programmatically collect and save
-        const ta=document.getElementById("settings-members");
-        if(ta)S.teamMembers=ta.value.split("\n").map(x=>x.trim()).filter(Boolean);
-        S.assigneeSuggestions=[...new Set([...S.teamMembers,...S.assigneeSuggestions])];
+        S.teamRoster=collectRoster();syncTeamMembersFromRoster();
         const cd=document.getElementById("settings-compdate");
         if(cd)S.compDate=cd.value||"";
             S.units=Array.from(document.querySelectorAll("#units-tbody tr[data-unit-idx]")).map(row=>({
@@ -1449,6 +1487,17 @@ function bindPage(){
       saveLocal(S.parts,S.mfgOrders);render();
     });
   });
+  document.getElementById("tm-add-row")?.addEventListener("click",()=>{
+    S.teamRoster=[...collectRoster().filter(r=>r.email!==LOCKED_ADMIN.email),{email:"",name:"",role:"member"}];
+    saveLocal(S.parts,S.mfgOrders);render();
+    setTimeout(()=>{const rows=document.querySelectorAll(".tm-email");if(rows.length)rows[rows.length-1].focus();},50);
+  });
+  document.querySelectorAll(".tm-del").forEach(btn=>{
+    btn.addEventListener("click",()=>{
+      const cur=collectRoster();cur.splice(parseInt(btn.dataset.idx),1);
+      S.teamRoster=cur;saveLocal(S.parts,S.mfgOrders);render();
+    });
+  });
   document.getElementById("pc-add-row")?.addEventListener("click",()=>{
     S.projectCodes=[...(S.projectCodes||[]),{code:"",name:""}];
     saveLocal(S.parts,S.mfgOrders);render();
@@ -1468,25 +1517,23 @@ function bindPage(){
     setTimeout(()=>{
       _settingsSnap=JSON.stringify({
         cd:document.getElementById("settings-compdate")?.value||"",
-        m:document.getElementById("settings-members")?.value||"",
+        m:JSON.stringify(collectRoster()),
       });
       _settingsDirty=false;
       const markDirty=()=>{
         const snap=JSON.stringify({
           cd:document.getElementById("settings-compdate")?.value||"",
-          m:document.getElementById("settings-members")?.value||"",
+          m:JSON.stringify(collectRoster()),
           });
         _settingsDirty=snap!==_settingsSnap;
       };
       document.getElementById("settings-compdate")?.addEventListener("input",markDirty);
-      document.getElementById("settings-members")?.addEventListener("input",markDirty);
+      document.querySelectorAll(".tm-email,.tm-name,.tm-role").forEach(el=>el.addEventListener("input",markDirty));
       document.querySelectorAll(".pc-code,.pc-name").forEach(el=>el.addEventListener("input",markDirty));
     },100);
   }
   document.getElementById("settings-save")?.addEventListener("click",()=>{
-    const ta=document.getElementById("settings-members");
-    if(ta)S.teamMembers=ta.value.split("\n").map(x=>x.trim()).filter(Boolean);
-    S.assigneeSuggestions=[...new Set([...S.teamMembers,...S.assigneeSuggestions])];
+    S.teamRoster=collectRoster();syncTeamMembersFromRoster();
     const cd=document.getElementById("settings-compdate");
     if(cd)S.compDate=cd.value||"";
     // Collect units from table
@@ -1509,6 +1556,7 @@ function bindPage(){
   document.getElementById("nav-history")?.addEventListener("click",openHistory);
   // nav-setup removed — settings now has its own tab
   document.getElementById("settings-sp-setup")?.addEventListener("click",openSetup);
+  document.getElementById("btn-logout")?.addEventListener("click",doLogout);
   document.getElementById("btn-refresh")?.addEventListener("click",()=>{if(S.connected)pullFromFirebase();});
   document.getElementById("btn-connect")?.addEventListener("click",connectFirebase);
   document.getElementById("top-new-br")?.addEventListener("click",()=>openEdit(null));
@@ -2652,6 +2700,7 @@ async function fetchRemoteState(){
     parts:data.parts?Object.values(data.parts):[],
     mfgOrders:data.mfgOrders?Object.values(data.mfgOrders):[],
     teamMembers:data.settings?.teamMembers||[],
+    teamRoster:data.settings?.teamRoster||[],
     compDate:data.settings?.compDate||'',
     deadlines:data.settings?.deadlines||[],
     projectCodes:data.settings?.projectCodes||[],
@@ -2666,7 +2715,7 @@ async function upsertAll(parts,mfgOrders){
   const po={},oo={};
   (parts||[]).forEach(p=>{po[fbKey(p.id)]=p;});
   (mfgOrders||[]).forEach(o=>{oo[fbKey(o.id)]=o;});
-  const settings={teamMembers:S.teamMembers||[],compDate:S.compDate||'',
+  const settings={teamMembers:S.teamMembers||[],teamRoster:S.teamRoster||[],compDate:S.compDate||'',
     deadlines:S.deadlines||[],projectCodes:S.projectCodes||[],
     units:S.units||[],majorAssy:S.majorAssy||'',settingsUpdatedAt:S.settingsUpdatedAt||0};
   try{
@@ -2715,7 +2764,7 @@ async function connectFirebase(){
       S.parts=remote.parts;
       S.mfgOrders=remote.mfgOrders;
       if((remote.settingsUpdatedAt||0)>=(S.settingsUpdatedAt||0)){
-        if(remote.teamMembers)S.teamMembers=remote.teamMembers;
+        if(remote.teamMembers)S.teamMembers=remote.teamMembers;if(remote.teamRoster)S.teamRoster=remote.teamRoster;
         if(remote.compDate)S.compDate=remote.compDate;
         if(remote.deadlines)S.deadlines=remote.deadlines;
         if(remote.projectCodes)S.projectCodes=remote.projectCodes;
@@ -2810,7 +2859,7 @@ function mergeRemoteState(remote){
 
   // Settings: remote wins if it has a newer settingsUpdatedAt
   if((remote.settingsUpdatedAt||0)>(S.settingsUpdatedAt||0)){
-    if(remote.teamMembers)S.teamMembers=remote.teamMembers;
+    if(remote.teamMembers)S.teamMembers=remote.teamMembers;if(remote.teamRoster)S.teamRoster=remote.teamRoster;
     if(remote.compDate)S.compDate=remote.compDate;
     if(remote.deadlines)S.deadlines=remote.deadlines;
     if(remote.projectCodes)S.projectCodes=remote.projectCodes;
@@ -2831,7 +2880,7 @@ async function pullFromFirebase(){
       S.parts=remote.parts;
       S.mfgOrders=remote.mfgOrders;
       if((remote.settingsUpdatedAt||0)>=(S.settingsUpdatedAt||0)){
-        if(remote.teamMembers)S.teamMembers=remote.teamMembers;
+        if(remote.teamMembers)S.teamMembers=remote.teamMembers;if(remote.teamRoster)S.teamRoster=remote.teamRoster;
         if(remote.compDate)S.compDate=remote.compDate;
         if(remote.deadlines)S.deadlines=remote.deadlines;
         if(remote.projectCodes)S.projectCodes=remote.projectCodes;
@@ -2993,11 +3042,124 @@ function _initCallbacks(){
 // ══════════════════════════════════════════════════
 //  BOOT
 // ══════════════════════════════════════════════════
+// ═══════════════════════════════════════════
+// FIREBASE AUTHENTICATION (email-link passwordless)
+// ═══════════════════════════════════════════
+const FB_AUTH_CONFIG={
+  apiKey:"AIzaSyDGvYWWymqtzxQ_Q176bDZK8mM9zt0iDU8",
+  authDomain:"bama-racing-ipm.firebaseapp.com",
+  databaseURL:"https://bama-racing-ipm-default-rtdb.firebaseio.com",
+  projectId:"bama-racing-ipm",
+  storageBucket:"bama-racing-ipm.firebasestorage.app",
+  messagingSenderId:"341864810308",
+  appId:"1:341864810308:web:2a55d6af6907c4850a7911"
+};
+let _fbAuth=null;
+function initFbAuth(){
+  if(_fbAuth)return _fbAuth;
+  try{
+    if(!firebase.apps.length)firebase.initializeApp(FB_AUTH_CONFIG);
+    _fbAuth=firebase.auth();
+    return _fbAuth;
+  }catch(e){console.error("[Auth init]",e);return null;}
+}
+// Resolve a signed-in email to a roster role
+function resolveRole(email){
+  const e=(email||"").toLowerCase();
+  if(e===LOCKED_ADMIN.email)return{name:LOCKED_ADMIN.name,role:"admin"};
+  const m=(S.teamRoster||[]).find(r=>(r.email||"").toLowerCase()===e);
+  return m?{name:m.name||e,role:m.role||"member"}:null;
+}
+function isAdmin(){return S.authRole==="admin";}
+function isLeadOrAdmin(){return S.authRole==="admin"||S.authRole==="lead";}
+
+function sendLoginLink(email){
+  const auth=initFbAuth();if(!auth)return Promise.reject(new Error("Auth unavailable"));
+  const actionCodeSettings={url:window.location.origin+window.location.pathname,handleCodeInApp:true};
+  return auth.sendSignInLinkToEmail(email,actionCodeSettings).then(()=>{
+    window.localStorage.setItem("ipm_login_email",email);
+  });
+}
+function completeLoginIfLink(){
+  const auth=initFbAuth();if(!auth)return Promise.resolve(false);
+  if(!auth.isSignInWithEmailLink(window.location.href))return Promise.resolve(false);
+  let email=window.localStorage.getItem("ipm_login_email");
+  if(!email)email=window.prompt("Confirm your email to finish signing in:");
+  if(!email)return Promise.resolve(false);
+  return auth.signInWithEmailLink(email,window.location.href).then(()=>{
+    window.localStorage.removeItem("ipm_login_email");
+    // Clean the URL of the sign-in params
+    window.history.replaceState({},document.title,window.location.pathname);
+    return true;
+  });
+}
+function doLogout(){
+  const auth=initFbAuth();if(auth)auth.signOut();
+}
+
+// Login screen UI
+function renderLoginScreen(opts){
+  opts=opts||{};
+  const page=document.getElementById("page");if(!page)return;
+  page.innerHTML=`<div style="min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px">
+    <div style="width:min(400px,92vw);background:var(--bg2);border:1px solid var(--border);border-radius:14px;padding:34px 30px;text-align:center">
+      <img src="${LOGO_URI}" alt="Bama Racing" style="width:64px;height:64px;object-fit:contain;margin-bottom:14px">
+      <div style="font-size:18px;font-weight:800;color:var(--text);margin-bottom:4px">Inventory &amp; Part Manager</div>
+      <div style="font-size:13px;color:var(--text2);margin-bottom:24px">Sign in with your team email</div>
+      ${opts.sent?`
+        <div style="background:#051a0d;border:1px solid #145228;border-radius:8px;padding:16px;color:#22c55e;font-size:13px;line-height:1.6">
+          ✓ Sign-in link sent to<br><strong>${esc(opts.sent)}</strong><br><br>
+          <span style="color:var(--text2)">Check your inbox and click the link to finish signing in. You can close this tab.</span>
+        </div>
+        <button id="login-back" class="btn sm ghost" style="margin-top:16px">Use a different email</button>
+      `:`
+        <input id="login-email" type="email" autocomplete="email" placeholder="name@crimson.ua.edu"
+          style="width:100%;padding:11px 14px;border:1px solid var(--border2);border-radius:8px;background:var(--bg3);color:var(--text);font-size:14px;box-sizing:border-box;margin-bottom:12px">
+        <button id="login-send" class="btn primary" style="width:100%;padding:11px;font-size:14px">Send Sign-In Link</button>
+        ${opts.error?`<div style="color:var(--red3);font-size:12px;margin-top:12px">${esc(opts.error)}</div>`:""}
+        <div style="font-size:11px;color:var(--text3);margin-top:18px;line-height:1.5">A one-time link will be emailed to you. No password needed.</div>
+      `}
+    </div>
+  </div>`;
+  const sendBtn=document.getElementById("login-send");
+  if(sendBtn){
+    const submit=()=>{
+      const email=(document.getElementById("login-email").value||"").trim().toLowerCase();
+      if(!email||!email.includes("@")){renderLoginScreen({error:"Enter a valid email."});return;}
+      sendBtn.disabled=true;sendBtn.textContent="Sending…";
+      sendLoginLink(email).then(()=>{
+        renderLoginScreen({sent:email});
+      }).catch(e=>{
+        renderLoginScreen({error:e.message||"Could not send link."});
+      });
+    };
+    sendBtn.addEventListener("click",submit);
+    document.getElementById("login-email").addEventListener("keydown",e=>{if(e.key==="Enter")submit();});
+    document.getElementById("login-email").focus();
+  }
+  document.getElementById("login-back")?.addEventListener("click",()=>renderLoginScreen({}));
+}
+
+// Access-denied screen (signed in but not on roster)
+function renderDeniedScreen(email){
+  const page=document.getElementById("page");if(!page)return;
+  page.innerHTML=`<div style="min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px">
+    <div style="width:min(400px,92vw);background:var(--bg2);border:1px solid var(--border);border-radius:14px;padding:34px 30px;text-align:center">
+      <div style="font-size:34px;margin-bottom:10px">🚫</div>
+      <div style="font-size:17px;font-weight:800;color:var(--text);margin-bottom:6px">Access Not Authorized</div>
+      <div style="font-size:13px;color:var(--text2);line-height:1.6;margin-bottom:20px"><strong>${esc(email)}</strong> isn't on the team roster. Ask an admin to add your email in Settings.</div>
+      <button id="denied-logout" class="btn">Sign Out</button>
+    </div>
+  </div>`;
+  document.getElementById("denied-logout")?.addEventListener("click",doLogout);
+}
+
 (function(){
   const wrap=document.createElement("div");wrap.id="page";document.getElementById("app").appendChild(wrap);
   const d=loadLocal();
   S.mfgOrders=d.mfgOrders||[];
   S.teamMembers=d.teamMembers||[];
+  S.teamRoster=d.teamRoster||[];
   S.compDate=d.compDate||"";
   S.deadlines=d.deadlines||[];
   S.majorAssy=d.majorAssy||"";
@@ -3026,9 +3188,51 @@ function _initCallbacks(){
   });
   S.assigneeSuggestions=[...new Set(S.parts.map(p=>p.assignee).filter(Boolean))];
   S.expanded=loadExpanded();
-  render();
-  _initCallbacks();
-  if(getFbCfg())setTimeout(connectFirebase,300);
+
+  // ── AUTH GATE ──
+  const auth=initFbAuth();
+  if(!auth){
+    // Auth SDK failed to load — fall back to open app (dev safety)
+    console.warn("[Auth] SDK unavailable, running ungated");
+    render();_initCallbacks();if(getFbCfg())setTimeout(connectFirebase,300);
+    return;
+  }
+  auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch(()=>{});
+
+  // First, complete a sign-in if this page load is from an email link
+  completeLoginIfLink().then(()=>{
+    // Then react to auth state
+    auth.onAuthStateChanged(user=>{
+      if(!user){
+        S.authUser=null;S.authRole=null;S.authReady=true;
+        renderLoginScreen({});
+        return;
+      }
+      // Signed in — pull roster (from Firebase if connected) then resolve role
+      const finishAuth=()=>{
+        const resolved=resolveRole(user.email);
+        if(!resolved){
+          S.authUser=user;S.authRole=null;S.authReady=true;
+          renderDeniedScreen(user.email);
+          return;
+        }
+        S.authUser={email:user.email,name:resolved.name};
+        S.authRole=resolved.role;
+        S.user={name:resolved.name};
+        S.authReady=true;
+        render();_initCallbacks();
+      };
+      // Make sure we have the latest roster before resolving
+      if(getFbCfg()){
+        connectFirebase().then(finishAuth).catch(finishAuth);
+      } else {
+        finishAuth();
+      }
+    });
+  }).catch(e=>{
+    console.error("[Auth] link completion failed",e);
+    renderLoginScreen({error:"Sign-in failed. Try again."});
+  });
 })();
 
 // Get all descendant part IDs under a given parentPn (recursive)
@@ -3156,14 +3360,14 @@ function buildDmView(){
       <td>${inlineStatus}</td>
       <td>${inlineRev}</td>
       <td style="font-size:12px;${dd.style||'color:var(--text)'}">${p.designDueDate||"—"}${dd.icon}</td>
-      <td><div style="display:flex;gap:2px"><button class="btn icon btn-edit-row" data-id="${p.id}">${I.edit}</button><button class="btn icon btn-credits-row" data-id="${p.id}" title="View Credits">${I.credits}</button></div></td>
+      <td><div style="display:flex;gap:2px;justify-content:flex-end"><button class="btn icon btn-edit-row" data-id="${p.id}">${I.edit}</button><button class="btn icon btn-credits-row" data-id="${p.id}" title="View Credits">${I.credits}</button></div></td>
     </tr>`;
   }
 
   const dmTh=(col,lbl,w)=>`<th class="dm-sort-th" data-sort-col="${col}" style="text-align:left;padding:7px 8px;font-size:10px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.08em;cursor:pointer;user-select:none;width:${w};overflow:visible"><div style="display:flex;align-items:center;gap:2px;white-space:nowrap">${lbl}<span style="color:${S.dmSort===col?"var(--red3)":"var(--text3)"};font-size:10px;flex-shrink:0">${S.dmSort===col?(S.dmSortDir===1?"↑":"↓"):"↕"}</span></div></th>`;
   const tableHead=`<table style="width:100%;border-collapse:collapse;table-layout:fixed"><thead><tr>
-    ${dmTh("pn","Part #","12%")}${dmTh("name","Name","24%")}${dmTh("assignee","Assignee","16%")}${dmTh("status","Status","16%")}${dmTh("rev","Rev","7%")}${dmTh("designDueDate","Design Due","13%")}
-    <th style="width:72px;min-width:72px"></th>
+    ${dmTh("pn","Part #","12%")}${dmTh("name","Name","23%")}${dmTh("assignee","Assignee","16%")}${dmTh("status","Status","16%")}${dmTh("rev","Rev","6%")}${dmTh("designDueDate","Design Due","13%")}
+    <th style="width:8%"></th>
   </tr></thead>`;
 
   return`<div>
