@@ -385,7 +385,7 @@ const MEMBER_OPTS_ANY=(selected)=>[{value:"",label:"— Any —"},...((getRoster
 const CFG_KEY="br26_cfg_v1",DATA_KEY="br26_data_v11",HIST_KEY="br26_history_v1",CAR="26";
 const loadCfg=()=>{try{return JSON.parse(localStorage.getItem(CFG_KEY))||{};}catch(e){return{};}};
 const saveCfg=c=>localStorage.setItem(CFG_KEY,JSON.stringify(c));
-const loadLocal=()=>{try{const r=JSON.parse(localStorage.getItem(DATA_KEY));if(r?.parts)return r;}catch(e){}return{parts:[],mfgOrders:[],teamMembers:[],teamRoster:[],compDate:"",deadlines:[],majorAssy:"",projectCodes:[],units:[]};};
+const loadLocal=()=>{try{const r=JSON.parse(localStorage.getItem(DATA_KEY));if(r?.parts)return r;}catch(e){}return{parts:[],mfgOrders:[],teamMembers:[],teamRoster:[],compDate:"",dashUser:"",deadlines:[],majorAssy:"",projectCodes:[],units:[]};};
 const saveLocal=(parts,mfgOrders)=>localStorage.setItem(DATA_KEY,JSON.stringify({parts,mfgOrders:mfgOrders||[],teamMembers:S.teamMembers||[],teamRoster:S.teamRoster||[],compDate:S.compDate||"",deadlines:S.deadlines||[],majorAssy:S.majorAssy||"",projectCodes:S.projectCodes||[]}));
 const loadHistory=()=>{try{return JSON.parse(localStorage.getItem(HIST_KEY))||[];}catch(e){return[];}};
 const saveHistory=h=>localStorage.setItem(HIST_KEY,JSON.stringify(h.slice(0,20)));
@@ -694,7 +694,7 @@ const S={
   authUser:null,authRole:null,authReady:false,
   sortCol:"pn",sortDir:1,config:loadCfg(),listFocus:-1,assigneeSuggestions:[],
   listFilter:{},mfgFilter:{},invFilter:{},oemFilter:{},dmFilter:{},dmSubFilter:"",dmSubPath:[],invTab:"br",dmSort:"pn",dmSortDir:1,mfgSort:"mfgNum",mfgSortDir:1,listSort:"pn",listSortDir:1,oemSort:"pn",oemSortDir:1,activeProfile:"",majorAssy:"",
-  teamMembers:[],teamRoster:[],compDate:"",deadlines:[],projectCodes:[],listProjectFilter:"",activeTreeRoot:"",activeTreeCode:"",isolatedTreeRoot:"",
+  teamMembers:[],teamRoster:[],compDate:"",dashUser:"",deadlines:[],projectCodes:[],listProjectFilter:"",activeTreeRoot:"",activeTreeCode:"",isolatedTreeRoot:"",
 };
 function memberOptions(selectedVal){
   const members=S.teamMembers.length?S.teamMembers:S.assigneeSuggestions;
@@ -776,7 +776,7 @@ function buildPage(){
   return`<div class="app">${buildSidebar()}<div class="main">${buildTopBar()}<div class="main-content">
     ${S.error?`<div class="alert alert-err" style="margin-bottom:14px">${S.error}<button id="btn-clear-err" class="btn sm ghost" style="float:right;margin-left:8px">✕</button></div>`:""}
     ${!S.connected?`<div class="alert alert-warn" style="margin-bottom:14px"><strong>Local mode.</strong><button id="btn-open-setup" class="btn sm" style="margin-left:8px">Configure Firebase →</button></div>`:""}
-    ${S.view==="tree"?buildTreeView():S.view==="list"?buildListView():S.view==="oem"?buildOemView():S.view==="mfg"?buildMfgView():S.view==="settings"?(isAdmin()?buildSettingsView():buildDmView()):buildDmView()}
+    ${S.view==="tree"?buildTreeView():S.view==="list"?buildListView():S.view==="oem"?buildOemView():S.view==="mfg"?buildMfgView():S.view==="settings"?(isAdmin()?buildSettingsView():buildDmView()):S.view==="dash"?buildDashView():buildDmView()}
   </div></div></div>`;
 }
 
@@ -788,6 +788,7 @@ function buildSidebar(){
   return`<div class="sidebar">
     <div class="sidebar-logo"><img src="${LOGO_URI}" alt="Bama Racing"><div class="sidebar-car">Inventory &amp; Part Manager<span style="font-size:10px;opacity:.5;margin-left:6px">v3</span></div></div>
     <div class="nav-section">Views</div>
+    <button class="nav-btn ${S.view==='dash'?'active':''}" id="nav-dash"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink:0"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg> Dashboard</button>
     <button class="nav-btn ${S.view==="dm"?"active":""}" id="nav-dm">${I.dm} Design Manager</button>
     <button class="nav-btn ${S.view==="tree"?"active":""}" id="nav-tree">${I.tree} Assembly Tree</button>
     <button class="nav-btn ${S.view==="mfg"?"active":""}" id="nav-mfg">${I.mfg} Manufacturing</button>
@@ -941,7 +942,7 @@ function buildTreeView(){
           <span style="font-family:var(--mono);font-size:11px;color:${n.isOem?"var(--blue-text)":isConsumable(n.pn)?"#eab308":"var(--text)"};flex-shrink:0;white-space:nowrap">${fullPN(n.pn,n.rev)}</span>
           <span style="color:${orp?"var(--red3)":n.isOem?"var(--text)":sColor(n.status)};font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(n.name)}">${esc(n.name)}</span>
           ${n.serialized?`<span class="serial-dot-btn" data-id="${n.id}" style="color:var(--purple);font-size:10px;cursor:pointer;flex-shrink:0">●</span>`:""}
-          ${showAssignee?`<span class="assignee-chip" style="flex-shrink:0;${n.assignee===myName()?"background:#9e1b32;border-color:#9e1b32;color:#fff;font-weight:700":""}">${esc(n.assignee)}</span>`:""}
+          ${showAssignee?`<span class="assignee-chip" style="flex-shrink:0;${n.assignee===myName()?"background:#0e7490;border-color:#0e7490;color:#fff;font-weight:700":""}">${esc(n.assignee)}</span>`:""}
         </div>
         <div style="text-align:center;font-family:var(--mono);font-size:12px;color:${qty>1?"var(--amber-text)":"var(--text3)"}">${qty>1?`×${qty}`:""}</div>
         <div style="font-family:var(--mono);font-size:11px;color:var(--text);padding-left:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
@@ -1471,7 +1472,7 @@ function bindPage(){
   if(si){si.addEventListener("input",()=>{S.search=si.value;renderKeepFocus();});si.addEventListener("keydown",e=>{if(e.key==="Escape"){S.search="";render();}});}
   document.getElementById("import-input")?.addEventListener("change",doImport);
   document.querySelectorAll("th[data-col]").forEach(th=>{th.addEventListener("click",()=>{const c=th.dataset.col;if(S.sortCol===c)S.sortDir*=-1;else{S.sortCol=c;S.sortDir=1;}render();});});
-  ["tree","list","oem","mfg","settings","dm"].forEach(v=>{document.getElementById(`nav-${v}`)?.addEventListener("click",()=>{
+  ["tree","list","oem","mfg","settings","dm","dash"].forEach(v=>{document.getElementById(`nav-${v}`)?.addEventListener("click",()=>{
     if(S.view==="settings"&&v!=="settings"&&_settingsDirty){
       const d=openDlg("su","min(400px,96vw)",`<div style="padding:24px">
         <div style="font-size:15px;font-weight:700;margin-bottom:10px">Unsaved settings</div>
@@ -1611,6 +1612,7 @@ function bindPage(){
   document.querySelectorAll(".oem-sort-th").forEach(th=>{th.addEventListener("click",()=>{const col=th.dataset.sortCol;if(S.oemSort===col)S.oemSortDir*=-1;else{S.oemSort=col;S.oemSortDir=1;}render();});});
   document.getElementById("btn-inv-filter")?.addEventListener("click",()=>openFilterDialog("inv"));
   document.getElementById("btn-dm-filter")?.addEventListener("click",()=>openFilterDialog("dm"));
+  document.getElementById("dash-user-sel")?.addEventListener("change",e=>{S.dashUser=e.target.value;render();});
   document.getElementById("btn-edit-deadlines")?.addEventListener("click",openDeadlinesDialog);
   document.querySelectorAll(".dl-complete-btn").forEach(btn=>{
     btn.addEventListener("click",()=>{
@@ -3293,6 +3295,98 @@ function getAllDescendants(parentPn, parts, visited=new Set()){
 // ══════════════════════════════════════════════════
 //  DESIGN MANAGER VIEW
 // ══════════════════════════════════════════════════
+function buildDashView(){
+  const me=myName();
+  const viewUser=isLeadOrAdmin()?(S.dashUser||me):me;
+  const roster=getRoster().map(r=>r.name).filter(Boolean);
+
+  // Parts assigned to viewUser
+  const myParts=S.parts.filter(p=>!p.isOem&&p.status!=="Obsolete"&&(p.assignee||"")===viewUser);
+  const myOrders=S.mfgOrders.filter(o=>(o.assignee||"")===viewUser&&o.status!=="Complete"&&o.status!=="Cancelled");
+
+  // Group parts by status
+  const statusGroups=[
+    {key:"Needs Revision",   label:"Needs Revision",   color:"var(--c-revision)", bg:"#12052a", border:"#5a1a7c"},
+    {key:"Needs Review",     label:"Needs Review",     color:"var(--c-review)",   bg:"#1c1600", border:"#6b5200"},
+    {key:"In Design",        label:"In Design",        color:"var(--c-indesign)", bg:"#1c0e04", border:"#7c3912"},
+    {key:"Design Approved",  label:"Design Approved",  color:"var(--c-approved)", bg:"#051a0d", border:"#145228"},
+    {key:"Manufactured",     label:"Manufactured",     color:"var(--c-mfg)",      bg:"#030d1c", border:"#1a3a5a"},
+  ];
+
+  // Mfg status groups
+  const mfgGroups=[
+    {key:"In Progress",      label:"In Progress",      color:"#eab308", bg:"#1c1600", border:"#6b5200"},
+    {key:"Needs Inspection", label:"Needs Inspection", color:"#22c55e", bg:"#051a0d", border:"#145228"},
+    {key:"Open",             label:"Open",             color:"var(--text2)", bg:"var(--bg3)", border:"var(--border2)"},
+    {key:"On Hold",          label:"On Hold",          color:"#f09595", bg:"#1e0808", border:"#6b1515"},
+  ];
+
+  const partCard=(p)=>`<div style="display:flex;align-items:center;gap:8px;padding:8px 10px;background:var(--bg3);border:1px solid var(--border);border-radius:6px;margin-bottom:6px">
+    <div style="width:8px;height:8px;border-radius:50%;background:${sColor(p.status)};flex-shrink:0"></div>
+    <span style="font-family:var(--mono);font-size:11px;color:var(--text2);flex-shrink:0">${fullPN(p.pn,p.rev)}</span>
+    <span style="font-size:13px;font-weight:600;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1">${esc(p.name)}</span>
+    ${p.designDueDate?`<span style="font-size:11px;color:${dueDateStyle2(p.designDueDate).style?"var(--red3)":"var(--text3)"};flex-shrink:0">${p.designDueDate}</span>`:""}
+  </div>`;
+
+  const orderCard=(o)=>`<div style="display:flex;align-items:center;gap:8px;padding:8px 10px;background:var(--bg3);border:1px solid var(--border);border-radius:6px;margin-bottom:6px">
+    <div style="width:8px;height:8px;border-radius:50%;background:${{Open:"var(--text3)","In Progress":"#eab308","Needs Inspection":"#22c55e","On Hold":"#f09595"}[o.status]||"var(--text3)"};flex-shrink:0"></div>
+    <span style="font-family:var(--mono);font-size:11px;color:var(--text2);flex-shrink:0">${o.mfgNum||""}</span>
+    <span style="font-size:13px;font-weight:600;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1">${esc(o.partName||"")}</span>
+    ${o.dueDate?`<span style="font-size:11px;color:var(--text3);flex-shrink:0">${o.dueDate}</span>`:""}
+  </div>`;
+
+  const partSections=statusGroups.map(g=>{
+    const pts=myParts.filter(p=>p.status===g.key);
+    if(!pts.length)return"";
+    return`<div style="margin-bottom:18px">
+      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:${g.color};margin-bottom:8px;padding:3px 8px;background:${g.bg};border:1px solid ${g.border};border-radius:4px;display:inline-block">${g.label} · ${pts.length}</div>
+      ${pts.map(partCard).join("")}
+    </div>`;
+  }).join("");
+
+  const mfgSections=mfgGroups.map(g=>{
+    const ords=myOrders.filter(o=>o.status===g.key);
+    if(!ords.length)return"";
+    return`<div style="margin-bottom:18px">
+      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:${g.color};margin-bottom:8px;padding:3px 8px;background:${g.bg};border:1px solid ${g.border};border-radius:4px;display:inline-block">${g.label} · ${ords.length}</div>
+      ${ords.map(orderCard).join("")}
+    </div>`;
+  }).join("");
+
+  const userPicker=isLeadOrAdmin()?`<div style="display:flex;align-items:center;gap:10px;margin-bottom:20px">
+    <span style="font-size:13px;color:var(--text2)">Viewing:</span>
+    <select id="dash-user-sel" style="padding:6px 12px;border:1px solid var(--border2);border-radius:var(--r);background:var(--bg3);color:var(--text);font-size:13px;-webkit-appearance:none;appearance:none">
+      ${roster.map(n=>`<option value="${esc(n)}" ${n===viewUser?"selected":""}>${esc(n)}</option>`).join("")}
+    </select>
+  </div>`:"";
+
+  const totalActive=myParts.filter(p=>!["Manufactured"].includes(p.status)).length;
+  const totalMfg=myOrders.length;
+
+  return`<div>
+    <div class="card" style="margin-bottom:12px">
+      <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+        <div>
+          <div style="font-size:22px;font-weight:800;color:#22d3ee">${viewUser===me?"Your Dashboard":esc(viewUser)+"'s Dashboard"}</div>
+          <div style="font-size:12px;color:var(--text2);margin-top:2px">${totalActive} active part${totalActive!==1?"s":""} · ${totalMfg} open order${totalMfg!==1?"s":""}</div>
+        </div>
+        <div style="flex:1"></div>
+        ${userPicker}
+      </div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;align-items:start">
+      <div class="card">
+        <div style="font-size:14px;font-weight:700;margin-bottom:14px;color:var(--text)">${(viewUser===me?"Your":esc(viewUser)+"'s")+" Design Tasks"}</div>
+        ${partSections||`<div style="font-size:13px;color:var(--text3);padding:12px 0">No active design tasks.</div>`}
+      </div>
+      <div class="card">
+        <div style="font-size:14px;font-weight:700;margin-bottom:14px;color:var(--text)">${(viewUser===me?"Your":esc(viewUser)+"'s")+" Manufacturing Orders"}</div>
+        ${mfgSections||`<div style="font-size:13px;color:var(--text3);padding:12px 0">No open manufacturing orders.</div>`}
+      </div>
+    </div>
+  </div>`;
+}
+
 function buildDmView(){
   // Scope to descendants of the major assembly if configured
   const _allBR=S.parts.filter(p=>!p.isOem&&p.status!=="Obsolete");
