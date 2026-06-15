@@ -778,8 +778,8 @@ function buildSidebar(){
     <button class="nav-btn ${S.view==="oem"?"active":""}" id="nav-oem">${I.oem} OEM Parts Library</button>
     <div class="nav-section">Actions</div>
     ${!isMemberOnly()?`<button class="nav-btn" id="nav-new-br">${I.plus} Create BR Part</button>`:""}
-    <button class="nav-btn" id="nav-new-oem">${I.oem} Create OEM Part</button>
-    <button class="nav-btn" id="nav-new-mfg">${I.mfg} Create Mfg Order</button>
+    ${!isMemberOnly()?`<button class="nav-btn" id="nav-new-oem">${I.oem} Create OEM Part</button>`:""}
+    ${!isMemberOnly()?`<button class="nav-btn" id="nav-new-mfg">${I.mfg} Create Mfg Order</button>`:""}
     <button class="nav-btn" id="nav-history">${I.hist} Save / History</button>
     <input type="file" id="import-input" accept=".json" style="display:none">
     <button class="nav-btn ${S.view==="settings"?"active":""}" id="nav-settings">${I.settings} Settings</button>
@@ -1634,7 +1634,7 @@ function bindPage(){
   document.querySelectorAll(".inv-ser-toggle").forEach(el=>{el.addEventListener("click",e=>{e.stopPropagation();const key="inv-"+el.dataset.id;S.expanded[key]=!S.expanded[key];render();});});
   // inv-lk handled by cSel callback _cbInvLk
   // list rows
-  document.querySelectorAll("#list-tbody tr").forEach(row=>{row.addEventListener("dblclick",e=>{if(e.target.closest(".inline-sel,.inline-inp,.inline-click"))return;openEdit(row.dataset.id);});});
+  document.querySelectorAll("#list-tbody tr").forEach(row=>{row.addEventListener("dblclick",e=>{if(isMemberOnly()||e.target.closest(".inline-sel,.inline-inp,.inline-click"))return;openEdit(row.dataset.id);});});
   document.querySelectorAll(".btn-edit-row").forEach(b=>{b.addEventListener("click",e=>{e.stopPropagation();openEdit(b.dataset.id);});});
   document.querySelectorAll(".btn-credits-row").forEach(b=>{b.addEventListener("click",e=>{e.stopPropagation();openCreditsDialog("part",b.dataset.id);});});
   document.querySelectorAll(".btn-edit-oem-row").forEach(b=>{b.addEventListener("click",e=>{e.stopPropagation();openEditOem(b.dataset.id);});});
@@ -1682,7 +1682,7 @@ function bindPage(){
       if(e.target.closest(".serial-dot-btn,.sn-clickable"))return;
       S.selected=S.selected?.id===id?null:S.parts.find(x=>x.id===id);render();
     });
-    row.addEventListener("dblclick",e=>{if(e.target.closest(".tree-chart-btn,.serial-dot-btn,.sn-clickable"))return;const p=S.parts.find(x=>x.id===id);if(p)p.isOem?openEditOem(id):openEdit(id);});
+    row.addEventListener("dblclick",e=>{if(isMemberOnly()||e.target.closest(".tree-chart-btn,.serial-dot-btn,.sn-clickable"))return;const p=S.parts.find(x=>x.id===id);if(p)p.isOem?openEditOem(id):openEdit(id);});
     row.addEventListener("contextmenu",e=>{e.preventDefault();openCtxTree(e,id);});
   });
   document.getElementById("toggle-unplaced")?.addEventListener("click",()=>{S.expanded.__unplaced=!S.expanded.__unplaced;saveExpanded();render();});
@@ -1730,6 +1730,7 @@ function bindPage(){
 // ══════════════════════════════════════════════════
 window.ctxListRow=function(e,id){
   e.preventDefault();
+  if(isMemberOnly()){openCtxMenu(e,[{label:"View Credits",icon:I.credits,fn:()=>openCreditsDialog("part",id)}]);return;}
   const p=S.parts.find(x=>x.id===id);
   const items=[{label:"Edit Part",icon:I.edit,fn:()=>openEdit(id)},{label:"View Credits",icon:I.credits,fn:()=>openCreditsDialog("part",id)}];
   if(p&&p.serialized)items.push({label:"Manage Serials",icon:I.serial,fn:()=>openSerialModal(id)});
@@ -1737,7 +1738,7 @@ window.ctxListRow=function(e,id){
   openCtxMenu(e,items);
 };
 window.ctxOemRow=function(e,id){e.preventDefault();openCtxMenu(e,[{label:"Edit OEM Part",icon:I.edit,fn:()=>openEditOem(id)},{divider:true},{label:"Delete",icon:I.trash,danger:true,fn:()=>promptDelete(id)}]);};
-window.ctxMfgRow=function(e,id){e.preventDefault();openCtxMenu(e,[{label:"Edit Order",icon:I.edit,fn:()=>openMfgForm(id)},{label:"View Credits",icon:I.credits,fn:()=>openCreditsDialog("mfg",id)},{divider:true},{label:"Delete",icon:I.trash,danger:true,fn:()=>promptDeleteMfg(id)}]);};
+window.ctxMfgRow=function(e,id){e.preventDefault();if(isMemberOnly()){openCtxMenu(e,[{label:"View Credits",icon:I.credits,fn:()=>openCreditsDialog("mfg",id)}]);return;}openCtxMenu(e,[{label:"Edit Order",icon:I.edit,fn:()=>openMfgForm(id)},{label:"View Credits",icon:I.credits,fn:()=>openCreditsDialog("mfg",id)},{divider:true},{label:"Delete",icon:I.trash,danger:true,fn:()=>promptDeleteMfg(id)}]);};
 window.ctxDetailComp=function(e,compId,parentPn){
   e.preventDefault();e.stopPropagation();
   const comp=S.parts.find(x=>x.id===compId);if(!comp)return;
@@ -1745,6 +1746,7 @@ window.ctxDetailComp=function(e,compId,parentPn){
 };
 function openCtxTree(e,id){
   const p=S.parts.find(x=>x.id===id);if(!p)return;
+  if(isMemberOnly()){openCtxMenu(e,[{label:"View Credits",icon:I.credits,fn:()=>openCreditsDialog("part",id)}]);return;}
   const treeRow=e.target.closest(".tree-node"),parentNode=treeRow?.parentElement?.closest(".tree-node");
   const parentPart=parentNode?.dataset?.id?S.parts.find(x=>x.id===parentNode.dataset.id):null;
   const parentPn=parentPart?.pn||"";
@@ -1822,6 +1824,7 @@ function openFilterDialog(type){
 //  MANUFACTURING ORDER FORM
 // ══════════════════════════════════════════════════
 function openMfgForm(mfgId){
+  if(isMemberOnly())return;
   const existing=mfgId?S.mfgOrders.find(o=>o.id===mfgId):null;
   const o=existing?{...existing}:blankMfg("");
   const isNew=!existing;
@@ -1969,6 +1972,7 @@ function openMfgForm(mfgId){
   d.onclick=e=>{const r2=d.getBoundingClientRect();if(e.clientX<r2.left||e.clientX>r2.right||e.clientY<r2.top||e.clientY>r2.bottom)tryClose();};
 }
 function promptDeleteMfg(id){
+  if(isMemberOnly())return;
   const o=S.mfgOrders.find(x=>x.id===id);if(!o)return;
   const d=openDlg("confirm-mfg","min(400px,96vw)",`<div style="padding:26px"><div style="display:flex;gap:10px;align-items:flex-start;margin-bottom:12px">${I.warn}<div style="font-size:15px;font-weight:700;color:var(--text)">Delete order for "${o.partName}"?</div></div><div style="font-size:13px;color:var(--text2);margin-bottom:20px">This manufacturing order will be permanently removed.</div><div style="display:flex;justify-content:flex-end;gap:8px"><button id="dm-cancel" class="btn">Cancel</button><button id="dm-ok" class="btn danger">Delete</button></div></div>`);
   d.querySelector("#dm-cancel").addEventListener("click",()=>closeDlg("confirm-mfg"));
@@ -2116,6 +2120,7 @@ function bindWu(con,pool,onUpdate){
 //  BR EDIT FORM
 // ══════════════════════════════════════════════════
 function openEdit(id,preParentPn){
+  if(isMemberOnly())return;
   const existing=id?S.parts.find(x=>x.id===id):null;
   const p=existing?JSON.parse(JSON.stringify(existing)):blank(preParentPn||"");
   const isNew=!existing,kids=!isNew&&hasKids(p.pn,S.parts);
@@ -2229,6 +2234,7 @@ Update the part number or add this project code in Settings.`);
 //  OEM EDIT FORM
 // ══════════════════════════════════════════════════
 function openEditOem(id,preParentPn){
+  if(isMemberOnly())return;
   const existing=id?S.parts.find(x=>x.id===id):null;
   const p=existing?JSON.parse(JSON.stringify(existing)):blankOem(preParentPn||"");
   const isNew=!existing,pool=S.parts.filter(x=>!x.isOem&&x.id!==p.id);
@@ -2362,6 +2368,7 @@ function showUnsaved(onSave,onDiscard){
   d.querySelector("#us-save").addEventListener("click",()=>{closeDlg("unsaved");onSave();});
 }
 function promptDelete(id){
+  if(isMemberOnly())return;
   const p=S.parts.find(x=>x.id===id);if(!p)return;
   const cc=S.parts.filter(x=>(x.whereUsed||[]).some(w=>w.parentPn===p.pn)).length;
   const d=openDlg("confirm","min(440px,96vw)",`<div style="padding:26px"><div style="display:flex;gap:10px;align-items:flex-start;margin-bottom:12px">${I.warn}<div style="font-size:15px;font-weight:700;color:var(--text)">Delete "${esc(p.name)}"?</div></div><div style="font-size:13px;color:var(--text2);line-height:1.6;margin-bottom:20px">${cc>0?`Has <strong>${cc} component${cc!==1?"s":""}</strong>. They will remain as orphans.`:"Will be permanently removed."}</div><div style="display:flex;justify-content:flex-end;gap:8px"><button id="dc-cancel" class="btn">Cancel</button><button id="dc-ok" class="btn danger">Delete</button></div></div>`);
@@ -3000,7 +3007,7 @@ function _initCallbacks(){
       promptAssigneeAfterStatus(p,val);
     }
   };
-  window._cbListAssignee=(val, triggerId)=>{
+  window._cbListAssignee=(val, triggerId)=>{if(isMemberOnly())return;
     const id=triggerId.replace(/^c[a-z0-9]+-asgn-/,"");
     const p=S.parts.find(x=>x.id===id);if(!p)return;
     const scrollY=window.scrollY;
@@ -3008,7 +3015,7 @@ function _initCallbacks(){
     persistPart(p);
     requestAnimationFrame(()=>window.scrollTo({top:scrollY,behavior:"instant"}));
   };
-  window._cbListRev=(val, triggerId)=>{
+  window._cbListRev=(val, triggerId)=>{if(isMemberOnly())return;
     const id=triggerId.replace(/^c[a-z0-9]+-rev-/,"");
     const p=S.parts.find(x=>x.id===id);if(!p)return;
     const scrollY=window.scrollY;
@@ -3050,7 +3057,7 @@ function _initCallbacks(){
     if(val==="storage"||val==="disposed")delete p.serials[si].parentSn;
     persistPart(p);
   };
-  window._cbMfgAssignee=(val, triggerId)=>{
+  window._cbMfgAssignee=(val, triggerId)=>{if(isMemberOnly())return;
     const id=triggerId.replace("cmfg-asgn-","");
     const o=S.mfgOrders.find(x=>x.id===id);if(!o)return;
     const scrollY=window.scrollY;
@@ -3467,7 +3474,7 @@ function buildDmView(){
             <div style="width:11px;height:11px;border-radius:50%;background:${sColor(assy.status)};flex-shrink:0;box-shadow:0 0 6px ${sColor(assy.status)}55"></div>
             <span style="font-family:var(--mono);font-size:11px;color:var(--text);flex-shrink:0">${fullPN(assy.pn,assy.rev)}</span>
             <span style="font-size:13px;font-weight:700;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(assy.name)}</span>
-            ${assy.assignee?`<span style="font-size:11px;padding:2px 7px;border-radius:10px;background:var(--bg4);border:1px solid var(--border2);white-space:nowrap;flex-shrink:0" class="${assy.assignee===myName()?"my-name":""}">${esc(assy.assignee)}</span>`:""}
+            ${assy.assignee?`<span style="font-size:11px;padding:2px 7px;border-radius:10px;white-space:nowrap;flex-shrink:0;${assy.assignee===myName()?"background:#9e1b32;border:1px solid #9e1b32;color:#fff;font-weight:700":"background:var(--bg4);border:1px solid var(--border2);color:var(--text2)"}">${esc(assy.assignee)}</span>`:""}
             <span style="flex:1"></span>
             <span style="font-family:var(--mono);font-size:15px;font-weight:800;color:${noChildren?"var(--text3)":"var(--text)"};flex-shrink:0">${noChildren?"—":subPct.toFixed(1)+"%"}</span>
             <span style="font-size:11px;color:var(--text3);flex-shrink:0">${noChildren?"—":subApproved+"/"+subTotal}</span>
