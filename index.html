@@ -562,37 +562,59 @@ const REV_OPTS=["-","A","B","C","D","E","F","G","H","J","K","L","M","N","P","Q",
 function openCreditsDialog(kind, id){
   const obj=kind==="mfg"?S.mfgOrders.find(x=>x.id===id):S.parts.find(x=>x.id===id);
   if(!obj)return;
-  const credits=(obj.credits||[]).slice().reverse();
+  function rebuildCredits(){
+    const credits=(obj.credits||[]).slice().reverse();
+    const thS="padding:7px 10px;font-size:10px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.08em;white-space:nowrap;border-bottom:1px solid var(--border)";
+    const tdS="padding:8px 10px;font-size:12px;border-bottom:1px solid var(--border);vertical-align:middle;white-space:nowrap";
+    const realIdx=i=>obj.credits.length-1-i; // reverse index back to original array
+    const tableRows=credits.length?credits.map((cr,i)=>{
+      const oldA=cr.oldAssignee||cr.assignee||"—";
+      const newA=cr.newAssignee||cr.assignee||"—";
+      const delBtn=isAdmin()?`<td style="${tdS}"><button class="btn icon danger cr-del-row" data-idx="${realIdx(i)}" style="font-size:11px">${I.trash}</button></td>`:"";
+      return`<tr>
+        <td style="${tdS};font-family:var(--mono);color:var(--text3)">${cr.ts||cr.date||"—"}</td>
+        <td style="${tdS};font-weight:600;color:${(cr.changedBy||"")===myName()?"#22d3ee":"var(--text)"}">${esc(cr.changedBy||"—")}</td>
+        <td style="${tdS};color:${sColor(cr.from)};font-weight:600">${cr.from||"—"}</td>
+        <td style="${tdS};color:var(--text2)">${esc(oldA)}</td>
+        <td style="${tdS};color:${sColor(cr.to)};font-weight:600">${cr.to||"—"}</td>
+        <td style="${tdS};color:var(--text2)">${esc(newA)}</td>
+        ${delBtn}
+      </tr>`;
+    }).join(""):`<tr><td colspan="${isAdmin()?7:6}" style="padding:24px;text-align:center;color:var(--text3);font-size:13px">No credits logged yet.</td></tr>`;
+    const delTh=isAdmin()?`<th style="${thS}"></th>`:"";
+    return`<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse">
+      <thead><tr>
+        <th style="${thS}">Date</th>
+        <th style="${thS}">Changed By</th>
+        <th style="${thS}">Old Status</th>
+        <th style="${thS}">Old Assignee</th>
+        <th style="${thS}">New Status</th>
+        <th style="${thS}">New Assignee</th>
+        ${delTh}
+      </tr></thead>
+      <tbody>${tableRows}</tbody>
+    </table></div>`;
+  }
   const title=kind==="mfg"?`${obj.mfgNum||""} ${esc(obj.partName||"")}`:`${fullPN(obj.pn,obj.rev)} — ${esc(obj.name||"")}`;
-  const thS="padding:7px 10px;font-size:10px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.08em;white-space:nowrap;border-bottom:1px solid var(--border)";
-  const tdS="padding:8px 10px;font-size:12px;border-bottom:1px solid var(--border);vertical-align:middle;white-space:nowrap";
-  const tableRows=credits.length?credits.map(cr=>{
-    const statusChanged=cr.from!==cr.to;
-    const assigneeChanged=(cr.oldAssignee||cr.assignee||"")!==(cr.newAssignee||cr.assignee||"");
-    const oldA=cr.oldAssignee||cr.assignee||"—";
-    const newA=cr.newAssignee||cr.assignee||"—";
-    return`<tr>
-      <td style="${tdS};font-family:var(--mono);color:var(--text3)">${cr.ts||cr.date||"—"}</td>
-      <td style="${tdS}">${statusChanged?`<span style="color:${sColor(cr.from)};font-weight:600">${cr.from}</span> <span style="color:var(--text3)">→</span> <span style="color:${sColor(cr.to)};font-weight:600">${cr.to}</span>`:`<span style="color:var(--text3)">—</span>`}</td>
-      <td style="${tdS};color:var(--text2)">${assigneeChanged?`<span style="color:var(--text3)">${esc(oldA)}</span> → <span style="font-weight:600;color:var(--text)">${esc(newA)}</span>`:esc(oldA)}</td>
-      <td style="${tdS};font-weight:600;color:${(cr.changedBy||"")===myName()?"#22d3ee":"var(--text)"}">${esc(cr.changedBy||"—")}</td>
-    </tr>`;
-  }).join(""):`<tr><td colspan="4" style="padding:24px;text-align:center;color:var(--text3);font-size:13px">No credits logged yet.</td></tr>`;
-  const table=`<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;min-width:540px">
-    <thead><tr>
-      <th style="${thS}">Time</th>
-      <th style="${thS}">Status Change</th>
-      <th style="${thS}">Assignee</th>
-      <th style="${thS}">Changed By</th>
-    </tr></thead>
-    <tbody>${tableRows}</tbody>
-  </table></div>`;
-  const d=openDlg("credits","min(600px,96vw)",`
+  const d=openDlg("credits","min(900px,96vw)",`
   <div class="dh"><div class="dh-title">Credits — ${title}</div><button id="cr-x" class="btn icon" style="margin-left:auto">${I.x}</button></div>
-  <div class="db" style="padding:0">${table}</div>
+  <div class="db" id="cr-body" style="padding:0">${rebuildCredits()}</div>
   <div class="df"><button id="cr-close" class="btn primary">Close</button></div>`);
   d.querySelector("#cr-x").addEventListener("click",()=>closeDlg("credits"));
   d.querySelector("#cr-close").addEventListener("click",()=>closeDlg("credits"));
+  function bindDelBtns(){
+    d.querySelectorAll(".cr-del-row").forEach(btn=>{
+      btn.addEventListener("click",()=>{
+        const idx=parseInt(btn.dataset.idx);
+        obj.credits.splice(idx,1);
+        kind==="mfg"?saveLocal(S.parts,S.mfgOrders):persistPart(obj);
+        if(getFbCfg())(kind==="mfg"?fbUpsertOrder(obj):fbUpsertPart(obj));
+        d.querySelector("#cr-body").innerHTML=rebuildCredits();
+        bindDelBtns();
+      });
+    });
+  }
+  bindDelBtns();
 }
 
 function showToast(msg, type){
