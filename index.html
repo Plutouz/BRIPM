@@ -439,7 +439,7 @@ const spDel=spId=>gf(`/sites/${spSiteId}/lists/${spListId}/items/${spId}`,{metho
 //  DATA HELPERS
 // ══════════════════════════════════════════════════
 const parsePN=pn=>{const c=(pn||"").replace(/[A-Z]$/,"");if(c.length!==8||!/^\d+$/.test(c))return null;return{yy:c.slice(0,2),mm:c.slice(2,4),ss:c.slice(4,6),pp:c.slice(6,8)};};
-const fullPN=(pn,rev)=>(rev&&rev!=="-")?pn+rev:pn+"-";
+const fullPN=(_pn,_rev)=>{const pn=String(_pn||""),rev=String(_rev||"-");return (rev&&rev!=="-")?pn+rev:pn+"-";};
 function suggestPN(parts,nha,excId){
   const np=parsePN(nha);if(!np)return"";
   const pool=parts.filter(x=>x.id!==excId&&!x.isOem);let used;
@@ -512,13 +512,15 @@ function rollup(id,parts,vis=new Set()){
   kids.forEach(c=>{const q=qtyInParent(c,p.pn);const r=rollup(c.id,parts,new Set(vis));cost+=r.cost*q;mass+=r.mass*q;});
   return{cost,mass};
 }
-function buildTreeNodes(parts,parentPn){
+function buildTreeNodes(parts,parentPn,_vis=new Set()){
+  if(_vis.has(parentPn))return[];
+  _vis=new Set(_vis);_vis.add(parentPn);
   const active=parts.filter(p=>(p.whereUsed||[]).some(w=>w.parentPn===parentPn));
-  const brActive=active.filter(p=>!p.isOem&&!isConsumable(p.pn)&&p.status!=="Obsolete").sort((a,b)=>a.pn.localeCompare(b.pn));
-  const brObs=active.filter(p=>!p.isOem&&p.status==="Obsolete").sort((a,b)=>a.pn.localeCompare(b.pn));
-  const oemActive=active.filter(p=>p.isOem&&p.status!=="Obsolete (OEM)").sort((a,b)=>a.pn.localeCompare(b.pn));
-  const brCons=active.filter(p=>!p.isOem&&isConsumable(p.pn)&&p.status!=="Obsolete").sort((a,b)=>a.pn.localeCompare(b.pn));
-  return[...brActive,...brObs,...oemActive,...brCons].map(p=>({...p,_qty:qtyInParent(p,parentPn),children:buildTreeNodes(parts,p.pn)}));
+  const brActive=active.filter(p=>!p.isOem&&!isConsumable(p.pn)&&p.status!=="Obsolete").sort((a,b)=>String(a.pn||"").localeCompare(String(b.pn||"")));
+  const brObs=active.filter(p=>!p.isOem&&p.status==="Obsolete").sort((a,b)=>String(a.pn||"").localeCompare(String(b.pn||"")));
+  const oemActive=active.filter(p=>p.isOem&&p.status!=="Obsolete (OEM)").sort((a,b)=>String(a.pn||"").localeCompare(String(b.pn||"")));
+  const brCons=active.filter(p=>!p.isOem&&isConsumable(p.pn)&&p.status!=="Obsolete").sort((a,b)=>String(a.pn||"").localeCompare(String(b.pn||"")));
+  return[...brActive,...brObs,...oemActive,...brCons].map(p=>({...p,_qty:qtyInParent(p,parentPn),children:buildTreeNodes(parts,p.pn,_vis)}));
 }
 const getRoots=parts=>parts.filter(p=>!p.whereUsed||p.whereUsed.length===0);
 // Get today's date in Central Time (UTC-5/UTC-6)
@@ -555,7 +557,7 @@ function isAssemblyOrder(o){
   return S.parts.some(x=>(x.whereUsed||[]).some(w=>w.parentPn===p.pn));
 }
 function isMasterPN(pn){return typeof pn==="string"&&pn.length===8&&pn.slice(2)==="000000";}
-const isConsumable=pn=>{const d=(pn||"").replace(/[^0-9]/g,"");return d.length>=6&&d[4]==="9"&&d[5]==="9";};
+const isConsumable=pn=>{const d=(String(pn||"")).replace(/[^0-9]/g,"");return d.length>=6&&d[4]==="9"&&d[5]==="9";};
 function isLowCodePart(p){return isLowCode(getProjCode(p.pn));}
 function fmtProjCode(code,name){return name?`${code} - ${name}`:code;}
 
@@ -1094,7 +1096,7 @@ function buildTreeView(){
 
 function buildDetailPanel(sel){
   const sr=rollup(sel.id,S.parts);
-  const comps=S.parts.filter(p=>(p.whereUsed||[]).some(w=>w.parentPn===sel.pn)).sort((a,b)=>a.pn.localeCompare(b.pn));
+  const comps=S.parts.filter(p=>(p.whereUsed||[]).some(w=>w.parentPn===sel.pn)).sort((a,b)=>String(a.pn||"").localeCompare(String(b.pn||"")));
   const nhaParts=(sel.whereUsed||[]).map(w=>{const pp=S.parts.find(x=>x.pn===w.parentPn);return pp?`${fullPN(pp.pn,pp.rev)} ×${w.qty}`:w.parentPn;});
   const tqty=(sel.whereUsed||[]).reduce((s,w)=>s+w.qty,0)||1;
   const snCount=(sel.serials||[]).length,needsMore=sel.serialized&&snCount<tqty,hK=hasKids(sel.pn,S.parts);
@@ -2213,7 +2215,9 @@ function bindDep(con,pool){
     inp.addEventListener("input",()=>show(inp.value));inp.addEventListener("focus",()=>show(inp.value));inp.addEventListener("blur",()=>setTimeout(()=>{dd.style.display="none";},150));
   });
 }
-function bindWu(con,pool,onUpdate){
+function bindWu(con,pool,onUpdate,excludePns=new Set()){
+  const filteredPool=excludePns.size?pool.filter(p=>!excludePns.has(p.pn)):pool;
+  pool=filteredPool;
   con.querySelectorAll(".wu-del").forEach(btn=>{btn.addEventListener("click",()=>{const wu=collectWu(con);wu.splice(parseInt(btn.closest("[data-wu-idx]").dataset.wuIdx),1);con.innerHTML=buildWuRows(wu,pool);bindWu(con,pool,onUpdate);if(onUpdate)onUpdate();});});
   // Where Used text search inputs
   con.querySelectorAll(".wu-parent-input").forEach((inp,idx)=>{
@@ -2320,7 +2324,11 @@ function openEdit(id,preParentPn){
   pnInput?.addEventListener("click",e=>e.stopPropagation());
   const wuCon=d.querySelector("#wu-con");
   const updateSug=()=>{const wu=collectWu(wuCon),fn=wu[0]?.parentPn||"";const s2=fn&&isNew?suggestPN(S.parts,fn,p.id):"",l2=pnLevel(fn);const sb=d.querySelector("#sug-box"),sp=d.querySelector("#sug-pn"),sh=d.querySelector("#sug-hint");if(sb)sb.style.display=s2&&isNew?"flex":"none";if(sp&&s2)sp.textContent=s2;if(sh){sh.textContent=l2?`Level ${l2} under ${fn}`:"";sh.style.display=l2?"block":"none";}};
-  bindWu(wuCon,pool,updateSug);
+  // Build set of PNs that cannot be a parent: self + all descendants
+  const _exPns=new Set();
+  if(p.pn)_exPns.add(p.pn);
+  (function addDesc(pn){S.parts.filter(x=>(x.whereUsed||[]).some(w=>w.parentPn===pn)).forEach(x=>{if(!_exPns.has(x.pn)){_exPns.add(x.pn);addDesc(x.pn);}});if(!p.id){};})(p.pn||"");
+  bindWu(wuCon,pool,updateSug,_exPns);
   const depCon=d.querySelector("#ef-dep-con");
   if(depCon)bindDep(depCon,allPool);
   // Auto-fill assignee from parent if new part with pre-set parent
@@ -2358,6 +2366,17 @@ Update the part number or add this project code in Settings.`);
         return false;
       }
     }
+    // Self/child as parent check
+    const _wuToCheck=collectWu(wuCon);
+    const _descPns=new Set();
+    (function addDesc2(pn){S.parts.filter(x=>(x.whereUsed||[]).some(w=>w.parentPn===pn)).forEach(x=>{if(!_descPns.has(x.pn)){_descPns.add(x.pn);addDesc2(x.pn);}});})( rawPn);
+    for(const wu of _wuToCheck){
+      if(wu.parentPn===rawPn){showToast("A part cannot be its own parent.","err");return false;}
+      if(_descPns.has(wu.parentPn)){const child=S.parts.find(x=>x.pn===wu.parentPn);showToast(`Cannot use child "${child?.name||wu.parentPn}" as a parent — would create a cycle.`,"err");return false;}
+    }
+    // Duplicate PN check
+    const _dupPn=S.parts.find(x=>x.pn===rawPn&&x.id!==p.id);
+    if(_dupPn){const pnEl=d.querySelector("#ef-pn");if(pnEl){pnEl.style.outline="2px solid #a32d2d";pnEl.focus();}showToast(`Part number ${rawPn} is already used by "${_dupPn.name}"`,"err");return false;}
     const part={...p,pn:rawPn,rev:cSelVal("ef-rev")||"-",name:nv,status:cSelVal("ef-status")||"In Design",assignee:cSelVal("ef-assignee")||"",whereUsed:collectWu(wuCon),dependencies:collectDeps(d.querySelector("#ef-dep-con")),matCost:kids?r.cost:(parseFloat(d.querySelector("#ef-cost")?.value)||0),mass:kids?r.mass:(parseFloat(d.querySelector("#ef-mass")?.value)||0),material:kids?"Assembly":(d.querySelector("#ef-mat")?.value||""),location:d.querySelector("#ef-loc")?.value||"",drawingUrl:d.querySelector("#ef-draw")?.value||"",desc:d.querySelector("#ef-desc")?.value||"",serialized:cSelVal("ef-serial")==="1",designDueDate:d.querySelector("#ef-duedate")?.value||"",isOem:false,id:p.id||("p"+Date.now())};
     if(part.assignee&&!S.assigneeSuggestions.includes(part.assignee))S.assigneeSuggestions.push(part.assignee);
     persistPart(part);closeDlg("br");return true;
@@ -2420,6 +2439,9 @@ function openEditOem(id,preParentPn){
   const doSave=()=>{
     const pn=(d.querySelector("#of-pn")?.value||"").trim(),name=(d.querySelector("#of-name")?.value||"").trim();
     if(!pn||!name){if(!name)d.querySelector("#of-name").style.outline="2px solid #a32d2d";return false;}
+    // Duplicate PN check
+    const _dupOemPn=S.parts.find(x=>x.pn===pn&&x.id!==p.id);
+    if(_dupOemPn){const pnEl=d.querySelector("#of-pn");if(pnEl){pnEl.style.outline="2px solid #a32d2d";pnEl.focus();}showToast(`Part number ${pn} is already used by "${_dupOemPn.name}"`,"err");return false;}
     const part={...p,pn,name,status:cSelVal("of-status")||"Current",manufacturer:d.querySelector("#of-mfr")?.value||"",whereUsed:collectWu(owuCon),unit:cSelVal("of-unit")||"",unitCost:parseFloat(d.querySelector("#of-unitcost")?.value)||0,unitMass:parseFloat(d.querySelector("#of-mass")?.value)||0,stockQty:parseFloat(d.querySelector("#of-stockqty")?.value)||1,stockUnit:cSelVal("of-stockunit")||"",stockCost:parseFloat(d.querySelector("#of-stockcost")?.value)||0,location:d.querySelector("#of-loc")?.value||"",drawingUrl:d.querySelector("#of-draw")?.value||"",productUrl:d.querySelector("#of-producturl")?.value||"",desc:d.querySelector("#of-desc")?.value||"",serialized:cSelVal("of-serial")==="1",isOem:true,matCost:0,mass:0,id:p.id||("oem"+Date.now())};
     persistPart(part);closeDlg("oem");return true;
   };
@@ -2741,7 +2763,11 @@ function openSetup(){
 // ══════════════════════════════════════════════════
 //  PERSIST / SYNC / EXPORT / IMPORT
 // ══════════════════════════════════════════════════
-function persistPart(part){
+function _sanitizePart(p){
+  if(p&&typeof p.pn!=="string")p={...p,pn:String(p.pn||"")};
+  return p;
+}
+function persistPart(part){part=_sanitizePart(part);
   const _sy=window.scrollY;
   part.updatedAt=Date.now();
   const i=S.parts.findIndex(x=>x.id===part.id);if(i>=0)S.parts[i]=part;else S.parts.push(part);
@@ -3640,11 +3666,11 @@ function buildDmView(){
     <!-- MAJOR ASSY SELECTOR -->
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
       ${(()=>{
-        const topLevel=S.parts.filter(p=>!p.isOem&&(!p.whereUsed||p.whereUsed.length===0)&&!isLowCode(getProjCode(p.pn))).sort((a,b)=>a.pn.localeCompare(b.pn));
+        const topLevel=S.parts.filter(p=>!p.isOem&&(!p.whereUsed||p.whereUsed.length===0)&&!isLowCode(getProjCode(p.pn))).sort((a,b)=>String(a.pn||"").localeCompare(String(b.pn||"")));
         // Deduplicate: one entry per project code, prefer master PN (XX000000) if it exists
         const codeMap=new Map();
         topLevel.forEach(p=>{const code=getProjCode(p.pn);if(!codeMap.has(code)||isMasterPN(p.pn))codeMap.set(code,p);});
-        const dedupedTopLevel=[...codeMap.values()].sort((a,b)=>a.pn.localeCompare(b.pn));
+        const dedupedTopLevel=[...codeMap.values()].sort((a,b)=>String(a.pn||"").localeCompare(String(b.pn||"")));
         return cSel("dm-major-assy",[{value:"",label:"— All BR Parts —"},...dedupedTopLevel.map(p=>{const code=getProjCode(p.pn);const pc2=(S.projectCodes||[]).find(x=>x.code===code);const label=pc2?fmtProjCode(code,pc2.name):"BR"+code;return{value:p.pn,label};})],S.majorAssy||"","_cbDmMajorAssy",{style:"width:200px"});
       })()}
     </div>
@@ -3742,7 +3768,7 @@ function buildDmView(){
       const secondLevel=S.parts.filter(p=>
         !p.isOem&&p.status!=="Obsolete"&&(p.pn||"").slice(-4)==="0000"&&
         (p.whereUsed||[]).some(w=>topLevelParts.some(t=>t.pn===w.parentPn))
-      ).sort((a,b)=>a.pn.localeCompare(b.pn));
+      ).sort((a,b)=>String(a.pn||"").localeCompare(String(b.pn||"")));
 
       const path=(S.dmSubPath||[]).filter(pn=>S.parts.find(p=>p.pn===pn));
       if(!secondLevel.length&&!path.length)return"";
@@ -3901,7 +3927,7 @@ function openMfgBomDialog(orderId){
   const children=S.parts.filter(p=>(p.whereUsed||[]).some(w=>w.parentPn===part.pn));
   if(!children.length){alert("No components found for this assembly.");return;}
 
-  const rows=children.sort((a,b)=>a.pn.localeCompare(b.pn)).map(p=>{
+  const rows=children.sort((a,b)=>String(a.pn||"").localeCompare(String(b.pn||""))).map(p=>{
     const wu=(p.whereUsed||[]).find(w=>w.parentPn===part.pn);
     const qty=(wu?.qty||1)*o.qty;
     return`<tr style="border-bottom:1px solid var(--border)">
