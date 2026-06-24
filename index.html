@@ -378,8 +378,26 @@ function getRoster(){
   const roster=(S.teamRoster||[]).filter(r=>(r.email||"").toLowerCase()!==LOCKED_ADMIN.email);
   return [LOCKED_ADMIN,...roster];
 }
-const MEMBER_OPTS=(selected)=>[{value:"",label:"— Unassigned —"},...((getRoster().length>1?getRoster().map(r=>r.name).filter(Boolean):(S.teamMembers.length?S.teamMembers:S.assigneeSuggestions))).map(m=>({value:m,label:m}))];
-const MEMBER_OPTS_ANY=(selected)=>[{value:"",label:"— Any —"},...((getRoster().length>1?getRoster().map(r=>r.name).filter(Boolean):(S.teamMembers.length?S.teamMembers:S.assigneeSuggestions))).map(m=>({value:m,label:m}))];
+const MEMBER_OPTS=(selected)=>{
+  const roster=getRoster();
+  const me=myName();
+  const byRole=(role)=>roster.filter(r=>r.role===role&&r.name).map(r=>r.name).sort();
+  const admins=byRole("admin"),leads=byRole("lead"),members=byRole("member");
+  const fallback=roster.length<=1?(S.teamMembers.length?S.teamMembers:S.assigneeSuggestions).sort():[];
+  const meArr=me&&roster.some(r=>r.name===me)?[me]:[];
+  const rest=[...admins,...leads,...members,...fallback].filter(m=>m!==me);
+  return[{value:"",label:"— Unassigned —"},...[...meArr,...rest].map(m=>({value:m,label:m}))];
+};
+const MEMBER_OPTS_ANY=(selected)=>{
+  const roster=getRoster();
+  const me=myName();
+  const byRole=(role)=>roster.filter(r=>r.role===role&&r.name).map(r=>r.name).sort();
+  const admins=byRole("admin"),leads=byRole("lead"),members=byRole("member");
+  const fallback=roster.length<=1?(S.teamMembers.length?S.teamMembers:S.assigneeSuggestions).sort():[];
+  const meArr=me&&roster.some(r=>r.name===me)?[me]:[];
+  const rest=[...admins,...leads,...members,...fallback].filter(m=>m!==me);
+  return[{value:"",label:"— Any —"},...[...meArr,...rest].map(m=>({value:m,label:m}))];
+};
 
 // ══════════════════════════════════════════════════
 //  STORAGE
@@ -387,8 +405,8 @@ const MEMBER_OPTS_ANY=(selected)=>[{value:"",label:"— Any —"},...((getRoster
 const CFG_KEY="br26_cfg_v1",DATA_KEY="br26_data_v11",HIST_KEY="br26_history_v1",CAR="26";
 const loadCfg=()=>{try{return JSON.parse(localStorage.getItem(CFG_KEY))||{};}catch(e){return{};}};
 const saveCfg=c=>localStorage.setItem(CFG_KEY,JSON.stringify(c));
-const loadLocal=()=>{try{const r=JSON.parse(localStorage.getItem(DATA_KEY));if(r?.parts)return r;}catch(e){}return{parts:[],mfgOrders:[],teamMembers:[],teamRoster:[],compDate:"",dashUser:"",dashPartSort:"pn",dashPartDir:1,dashOrderSort:"mfgNum",dashOrderDir:1,deadlines:[],majorAssy:"",projectCodes:[],units:[]};};
-const saveLocal=(parts,mfgOrders)=>localStorage.setItem(DATA_KEY,JSON.stringify({parts,mfgOrders:mfgOrders||[],teamMembers:S.teamMembers||[],teamRoster:S.teamRoster||[],compDate:S.compDate||"",deadlines:S.deadlines||[],majorAssy:S.majorAssy||"",projectCodes:S.projectCodes||[]}));
+const loadLocal=()=>{try{const r=JSON.parse(localStorage.getItem(DATA_KEY));if(r?.parts)return r;}catch(e){}return{parts:[],mfgOrders:[],teamMembers:[],teamRoster:[],compDate:"",dashUser:"",manufacturerContacts:{},dashPartSort:"pn",dashPartDir:1,dashOrderSort:"mfgNum",dashOrderDir:1,deadlines:[],majorAssy:"",projectCodes:[],units:[]};};
+const saveLocal=(parts,mfgOrders)=>localStorage.setItem(DATA_KEY,JSON.stringify({parts,mfgOrders:mfgOrders||[],teamMembers:S.teamMembers||[],teamRoster:S.teamRoster||[],compDate:S.compDate||"",deadlines:S.deadlines||[],majorAssy:S.majorAssy||"",projectCodes:S.projectCodes||[],manufacturerContacts:S.manufacturerContacts||{}}));
 const loadHistory=()=>{try{return JSON.parse(localStorage.getItem(HIST_KEY))||[];}catch(e){return[];}};
 const saveHistory=h=>localStorage.setItem(HIST_KEY,JSON.stringify(h.slice(0,20)));
 
@@ -558,6 +576,36 @@ const REV_OPTS=["-","A","B","C","D","E","F","G","H","J","K","L","M","N","P","Q",
 
 
 
+
+function openLeadAddMemberDialog(){
+  const d=openDlg("lead-addmember","min(400px,96vw)",`
+  <div class="dh"><div class="dh-title"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink:0"><path d="M16 21v-2a4 4 0 00-4-4H6a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" y1="8" x2="19" y2="14"/><line x1="16" y1="11" x2="22" y2="11"/></svg> Add Team Member</div><button id="lam-x" class="btn icon" style="margin-left:auto">${I.x}</button></div>
+  <div class="db">
+    <div style="font-size:13px;color:var(--text2);margin-bottom:16px;line-height:1.5">Enter the member's Google account email and display name. Use the format <strong>First name Last initial</strong>, e.g. <span style="font-family:var(--mono);color:var(--text)">"Bama R"</span>.</div>
+    <div class="f"><label>Display Name</label><input id="lam-name" type="text" autocomplete="off" placeholder="e.g. Bama R" style="width:100%;padding:9px 12px;border:1px solid var(--border2);border-radius:var(--r);background:var(--bg3);color:var(--text);font-size:13px;box-sizing:border-box"></div>
+    <div class="f"><label>Email (Google account)</label><input id="lam-email" type="email" autocomplete="off" placeholder="name@gmail.com" style="width:100%;padding:9px 12px;border:1px solid var(--border2);border-radius:var(--r);background:var(--bg3);color:var(--text);font-family:var(--mono);font-size:13px;box-sizing:border-box"></div>
+    <div id="lam-msg" style="font-size:12px;margin-top:8px"></div>
+  </div>
+  <div class="df"><button id="lam-cancel" class="btn">Cancel</button><button id="lam-ok" class="btn primary">Add Member</button></div>`);
+  d.querySelector("#lam-x").addEventListener("click",()=>closeDlg("lead-addmember"));
+  d.querySelector("#lam-cancel").addEventListener("click",()=>closeDlg("lead-addmember"));
+  d.querySelector("#lam-name").focus();
+  d.querySelector("#lam-ok").addEventListener("click",()=>{
+    const name=(d.querySelector("#lam-name").value||"").trim();
+    const email=(d.querySelector("#lam-email").value||"").trim().toLowerCase();
+    const msg=d.querySelector("#lam-msg");
+    if(!name){msg.style.color="var(--red3)";msg.textContent="Enter a display name.";return;}
+    if(!email||!email.includes("@")){msg.style.color="var(--red3)";msg.textContent="Enter a valid email.";return;}
+    if((S.teamRoster||[]).some(r=>(r.email||"").toLowerCase()===email)){msg.style.color="var(--red3)";msg.textContent="That email is already on the roster.";return;}
+    // Append to end of roster as member role
+    S.teamRoster=[...(S.teamRoster||[]),{email,name,role:"member"}];
+    syncTeamMembersFromRoster();
+    saveLocal(S.parts,S.mfgOrders);
+    if(getFbCfg())upsertAll(S.parts,S.mfgOrders).catch(()=>{});
+    closeDlg("lead-addmember");
+    showToast("Added "+name+" to the team.","ok");
+  });
+}
 
 function openCreditsDialog(kind, id){
   const obj=kind==="mfg"?S.mfgOrders.find(x=>x.id===id):S.parts.find(x=>x.id===id);
@@ -736,7 +784,7 @@ const S={
   authUser:null,authRole:null,authReady:false,
   sortCol:"pn",sortDir:1,config:loadCfg(),listFocus:-1,assigneeSuggestions:[],
   listFilter:{},mfgFilter:{},invFilter:{},oemFilter:{},dmFilter:{},dmSubFilter:"",dmSubPath:[],invTab:"br",dmSort:"pn",dmSortDir:1,mfgSort:"mfgNum",mfgSortDir:1,listSort:"pn",listSortDir:1,oemSort:"pn",oemSortDir:1,activeProfile:"",majorAssy:"",
-  teamMembers:[],teamRoster:[],compDate:"",dashUser:"",dashPartSort:"pn",dashPartDir:1,dashOrderSort:"mfgNum",dashOrderDir:1,deadlines:[],projectCodes:[],listProjectFilter:"",activeTreeRoot:"",activeTreeCode:"",isolatedTreeRoot:"",
+  teamMembers:[],teamRoster:[],compDate:"",dashUser:"",manufacturerContacts:{},dashPartSort:"pn",dashPartDir:1,dashOrderSort:"mfgNum",dashOrderDir:1,deadlines:[],projectCodes:[],listProjectFilter:"",activeTreeRoot:"",activeTreeCode:"",isolatedTreeRoot:"",
 };
 function memberOptions(selectedVal){
   const members=S.teamMembers.length?S.teamMembers:S.assigneeSuggestions;
@@ -1244,8 +1292,15 @@ function buildOemView(){
       ${f.location?`<span class="filter-chip">Location: ${f.location} <span class="rm-oem-filter" data-key="location" style="cursor:pointer;margin-left:4px">✕</span></span>`:""}
     </div>`:""}
     ${!mfrs.length?`<div class="empty">${I.oem}<br><br>No OEM parts.</div>`:""}
-    ${mfrs.map(mfr=>`<div style="margin-bottom:20px">
-      <div style="font-size:11px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.1em;margin-bottom:8px;padding-bottom:6px;border-bottom:1px solid var(--border)">${mfr}</div>
+    ${mfrs.map(mfr=>{
+      const mc=(S.manufacturerContacts||{})[mfr]||{};
+      const mfrKey=esc(mfr).replace(/[^a-zA-Z0-9]/g,"_");
+      return`<div style="margin-bottom:20px">
+      <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:8px;padding-bottom:6px;border-bottom:1px solid var(--border)">
+        <div style="font-size:11px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.1em;flex-shrink:0">${esc(mfr)}</div>
+        ${mfr!=="Unknown"?`<input class="mfr-contact-phone" data-mfr="${esc(mfr)}" type="text" placeholder="Phone" value="${esc(mc.phone||"")}" style="font-size:11px;padding:2px 7px;border:1px solid var(--border);border-radius:4px;background:var(--bg3);color:var(--text2);width:120px">
+        <input class="mfr-contact-email" data-mfr="${esc(mfr)}" type="text" placeholder="Email" value="${esc(mc.email||"")}" style="font-size:11px;padding:2px 7px;border:1px solid var(--border);border-radius:4px;background:var(--bg3);color:var(--text2);width:180px">`:""}
+      </div>
       <div class="tbl-wrap"><table>
         <thead><tr>
           ${(()=>{const os=(col,lbl,w)=>`<th class="oem-sort-th" data-sort-col="${col}" style="width:${w};padding:4px 8px;font-size:10px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.08em;cursor:pointer;user-select:none;overflow:visible"><div style="display:flex;align-items:center;gap:2px;white-space:nowrap">${lbl}<span style="color:${S.oemSort===col?"var(--red3)":"var(--text3)"};font-size:10px;flex-shrink:0">${S.oemSort===col?(S.oemSortDir===1?"↑":"↓"):"↕"}</span></div></th>`;const sh=(lbl,w)=>`<th style="width:${w};padding:4px 8px;font-size:10px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.08em">${lbl}</th>`;return os("pn","Part #","12%")+os("name","Name","18%")+os("status","Status","8%")+os("unit","Unit","6%")+os("unitCost","Unit Cost","9%")+os("unitMass","Unit Mass","9%")+os("location","Location","10%")+os("treeUsage","Tree Usage","9%")+sh("Used In","14%")+'<th style="width:5%"></th>';})()}
@@ -1273,7 +1328,7 @@ function buildOemView(){
           </tr>`;
         }).join("")}</tbody>
       </table></div>
-    </div>`).join("")}
+    </div>`;}).join("")}
   </div>`;
 }
 // ══════════════════════════════════════════════════
@@ -1654,6 +1709,20 @@ function bindPage(){
   document.getElementById("btn-inv-filter")?.addEventListener("click",()=>openFilterDialog("inv"));
   document.getElementById("btn-dm-filter")?.addEventListener("click",()=>openFilterDialog("dm"));
   document.getElementById("dash-user-sel")?.addEventListener("change",e=>{S.dashUser=e.target.value;render();});
+  document.getElementById("nav-addmember")?.addEventListener("click",()=>{
+    if(S.authRole!=="lead"){return;}
+    openLeadAddMemberDialog();
+  });
+  document.querySelectorAll(".mfr-contact-phone,.mfr-contact-email").forEach(inp=>{
+    inp.addEventListener("change",()=>{
+      const mfr=inp.dataset.mfr;
+      if(!S.manufacturerContacts)S.manufacturerContacts={};
+      if(!S.manufacturerContacts[mfr])S.manufacturerContacts[mfr]={};
+      S.manufacturerContacts[mfr][inp.classList.contains("mfr-contact-phone")?"phone":"email"]=inp.value.trim();
+      saveLocal(S.parts,S.mfgOrders);
+      if(getFbCfg())upsertAll(S.parts,S.mfgOrders).catch(()=>{});
+    });
+  });
   document.querySelectorAll(".dash-pth").forEach(th=>{th.addEventListener("click",()=>{
     const col=th.dataset.col;
     if(S.dashPartSort===col)S.dashPartDir*=-1;else{S.dashPartSort=col;S.dashPartDir=1;}render();
@@ -2316,7 +2385,7 @@ function openEditOem(id,preParentPn){
       <div class="f"><label>Status</label>${cSelHTML("of-status", OEM_STATUS_OPTS(), p.status||"Current", "_noop")}</div>
     </div>
     <div class="f"><label>Part Name</label><input id="of-name" type="text" autocomplete="off" value="${esc(p.name)}" placeholder="e.g. Gear Position Sensor"></div>
-    <div class="f"><label>Manufacturer</label><input id="of-mfr" type="text" autocomplete="off" value="${p.manufacturer||""}" placeholder="e.g. Magneti Marelli"></div>
+    <div class="f"><label>Manufacturer</label><input id="of-mfr" type="text" autocomplete="off" list="of-mfr-list" value="${esc(p.manufacturer||"")}" placeholder="e.g. Magneti Marelli"><datalist id="of-mfr-list">${[...new Set(S.parts.filter(x=>x.isOem).map(x=>x.manufacturer).filter(Boolean))].sort().map(m=>`<option value="${esc(m)}">`).join("")}</datalist></div>
     <div class="f"><label>Where Used</label><div id="owu-con">${buildWuRows(p.whereUsed||[],pool)}</div></div>
     <div style="font-size:11px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.08em;margin:14px 0 8px;padding-bottom:6px;border-bottom:1px solid var(--border)">Design / BOM Values</div>
     <div class="f-row">
@@ -2807,6 +2876,7 @@ async function fetchRemoteState(){
     mfgOrders:data.mfgOrders?Object.values(data.mfgOrders):[],
     teamMembers:data.settings?.teamMembers||[],
     teamRoster:data.settings?.teamRoster||[],
+    manufacturerContacts:data.settings?.manufacturerContacts||{},
     compDate:data.settings?.compDate||'',
     deadlines:data.settings?.deadlines||[],
     projectCodes:data.settings?.projectCodes||[],
@@ -2821,7 +2891,7 @@ async function upsertAll(parts,mfgOrders){
   const po={},oo={};
   (parts||[]).forEach(p=>{po[fbKey(p.id)]=p;});
   (mfgOrders||[]).forEach(o=>{oo[fbKey(o.id)]=o;});
-  const settings={teamMembers:S.teamMembers||[],teamRoster:S.teamRoster||[],compDate:S.compDate||'',
+  const settings={teamMembers:S.teamMembers||[],teamRoster:S.teamRoster||[],manufacturerContacts:S.manufacturerContacts||{},compDate:S.compDate||'',
     deadlines:S.deadlines||[],projectCodes:S.projectCodes||[],
     units:S.units||[],majorAssy:S.majorAssy||'',settingsUpdatedAt:S.settingsUpdatedAt||0};
   try{
@@ -2870,7 +2940,7 @@ async function connectFirebase(){
       S.parts=remote.parts;
       S.mfgOrders=remote.mfgOrders;
       if((remote.settingsUpdatedAt||0)>=(S.settingsUpdatedAt||0)){
-        if(remote.teamMembers)S.teamMembers=remote.teamMembers;if(remote.teamRoster)S.teamRoster=remote.teamRoster;
+        if(remote.teamMembers)S.teamMembers=remote.teamMembers;if(remote.teamRoster)S.teamRoster=remote.teamRoster;if(remote.manufacturerContacts)S.manufacturerContacts=remote.manufacturerContacts;
         if(remote.compDate)S.compDate=remote.compDate;
         if(remote.deadlines)S.deadlines=remote.deadlines;
         if(remote.projectCodes)S.projectCodes=remote.projectCodes;
@@ -2965,7 +3035,7 @@ function mergeRemoteState(remote){
 
   // Settings: remote wins if it has a newer settingsUpdatedAt
   if((remote.settingsUpdatedAt||0)>(S.settingsUpdatedAt||0)){
-    if(remote.teamMembers)S.teamMembers=remote.teamMembers;if(remote.teamRoster)S.teamRoster=remote.teamRoster;
+    if(remote.teamMembers)S.teamMembers=remote.teamMembers;if(remote.teamRoster)S.teamRoster=remote.teamRoster;if(remote.manufacturerContacts)S.manufacturerContacts=remote.manufacturerContacts;
     if(remote.compDate)S.compDate=remote.compDate;
     if(remote.deadlines)S.deadlines=remote.deadlines;
     if(remote.projectCodes)S.projectCodes=remote.projectCodes;
@@ -2986,7 +3056,7 @@ async function pullFromFirebase(){
       S.parts=remote.parts;
       S.mfgOrders=remote.mfgOrders;
       if((remote.settingsUpdatedAt||0)>=(S.settingsUpdatedAt||0)){
-        if(remote.teamMembers)S.teamMembers=remote.teamMembers;if(remote.teamRoster)S.teamRoster=remote.teamRoster;
+        if(remote.teamMembers)S.teamMembers=remote.teamMembers;if(remote.teamRoster)S.teamRoster=remote.teamRoster;if(remote.manufacturerContacts)S.manufacturerContacts=remote.manufacturerContacts;
         if(remote.compDate)S.compDate=remote.compDate;
         if(remote.deadlines)S.deadlines=remote.deadlines;
         if(remote.projectCodes)S.projectCodes=remote.projectCodes;
@@ -3124,7 +3194,9 @@ function _initCallbacks(){
     const oldA=o.assignee||"";
     if(oldA!==val)logCredit(o,o.status,o.status,oldA,val||"(unassigned)");
     o.assignee=val;if(val&&!S.assigneeSuggestions.includes(val))S.assigneeSuggestions.push(val);
-    saveLocal(S.parts,S.mfgOrders);render();
+    saveLocal(S.parts,S.mfgOrders);
+    if(getFbCfg())fbUpsertOrder(o);
+    render();
   };
   // ── DM sort ──
   window._cbTreeCode=(val)=>{S.activeTreeCode=val;S.activeTreeRoot="";render();};
@@ -3253,6 +3325,7 @@ function renderDeniedScreen(email){
   S.mfgOrders=d.mfgOrders||[];
   S.teamMembers=d.teamMembers||[];
   S.teamRoster=d.teamRoster||[];
+  S.manufacturerContacts=d.manufacturerContacts||{};
   S.compDate=d.compDate||"";
   S.deadlines=d.deadlines||[];
   S.majorAssy=d.majorAssy||"";
